@@ -1,0 +1,36 @@
+{
+  "name": "pixelcode",
+  "version": "0.1.0",
+  "description": "AI-powered visual code editing for any frontend framework",
+  "type": "module",
+  "bin": {
+    "pixelcode": "./dist/index.js"
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "pnpm exec tsc",
+    "dev": "pnpm exec tsc --watch",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "typecheck": "pnpm exec tsc --noEmit"
+  },
+  "keywords": [
+    "ai",
+    "code-editing",
+    "react",
+    "vue",
+    "html",
+    "developer-tools",
+    "opencode"
+  ],
+  "author": "PixelCode Team",
+  "license": "MIT",
+  "dependencies": {
+    "@pixelcode/server": "workspace:*",
+    "commander": "^11.1.0",
+    "picocolors": "^1.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.6",
+    "typescript": "^5.3.3"
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "name": "@pixelcode/server",
+  "version": "0.1.0",
+  "description": "PixelCode local server",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "bin": {
+    "pixelcode-server": "./dist/index.js"
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "pnpm exec tsc",
+    "dev": "pnpm exec tsc --watch",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "typecheck": "pnpm exec tsc --noEmit",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@babel/parser": "^7.23.6",
+    "@babel/traverse": "^7.23.6",
+    "@hono/node-server": "^1.19.6",
+    "diff": "^5.1.0",
+    "fast-glob": "^3.3.2",
+    "hono": "^4.10.7",
+    "picocolors": "^1.0.0",
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@pixelcode/shared": "workspace:*",
+    "@types/babel__traverse": "^7.20.5",
+    "@types/diff": "^5.0.9",
+    "@types/node": "^20.10.6",
+    "@types/ws": "^8.5.10",
+    "typescript": "^5.3.3"
+  }
+}

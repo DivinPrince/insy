@@ -1,0 +1,25 @@
+{
+  "name": "@pixelcode/client",
+  "version": "0.1.0",
+  "description": "PixelCode browser client",
+  "type": "module",
+  "main": "./dist/index.js",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "node build.js",
+    "dev": "node build.js --watch",
+    "clean": "rm -rf dist",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "html2canvas": "^1.4.1",
+    "preact": "^10.19.3"
+  },
+  "devDependencies": {
+    "@pixelcode/shared": "workspace:*",
+    "esbuild": "^0.19.11",
+    "typescript": "^5.3.3"
+  }
+}
