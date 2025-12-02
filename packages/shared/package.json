@@ -13,10 +13,10 @@
   },
   "files": ["dist"],
   "scripts": {
-    "build": "pnpm exec tsc",
-    "dev": "pnpm exec tsc --watch",
+    "build": "bun tsc",
+    "dev": "bun tsc --watch",
     "clean": "rm -rf dist *.tsbuildinfo",
-    "typecheck": "pnpm exec tsc --noEmit"
+    "typecheck": "bun tsc --noEmit"
   },
   "devDependencies": {
     "typescript": "^5.3.3"

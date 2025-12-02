@@ -11,11 +11,11 @@
     "examples/*"
   ],
   "scripts": {
-    "build": "pnpm -r --filter './packages/*' build",
-    "dev": "pnpm -r --parallel --filter './packages/*' dev",
-    "clean": "pnpm -r --filter './packages/*' clean",
-    "typecheck": "pnpm -r --filter './packages/*' typecheck",
-    "lint": "pnpm -r --filter './packages/*' lint"
+    "build": "bun run --filter './packages/*' build",
+    "dev": "bun run --filter './packages/*' dev",
+    "clean": "bun run --filter './packages/*' clean",
+    "typecheck": "bun run --filter './packages/*' typecheck",
+    "lint": "bun run --filter './packages/*' lint"
   },
   "devDependencies": {
     "typescript": "^5.3.3",
@@ -23,7 +23,6 @@
     "eslint": "^8.56.0"
   },
   "engines": {
-    "node": ">=18.0.0",
-    "pnpm": ">=8.0.0"
+    "bun": ">=1.0.0"
   }
 }
