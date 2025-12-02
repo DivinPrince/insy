@@ -1,6 +1,8 @@
 // CLI Tool Adapter Interface
 // This allows PixelCode to work with different CLI tools (OpenCode, Claude Code, etc.)
 
+import type { ModelInfo } from '@pixelcode/shared';
+
 export interface CLIToolAdapter {
   name: string;
   
@@ -12,6 +14,9 @@ export interface CLIToolAdapter {
   
   // Optional: Get tool version
   getVersion?(): Promise<string>;
+  
+  // Optional: Get available models for this tool
+  getAvailableModels?(): Promise<ModelInfo[]>;
 }
 
 export interface RunOptions {

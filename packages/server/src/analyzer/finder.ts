@@ -107,16 +107,22 @@ export class SourceFileFinder {
       'index.html',
       '*.html',
       'public/index.html',
+      'public/*.html',
       'examples/**/*.html',
       'src/**/*.html',
+      '**/*.html',
     ];
+
+    console.log('[Finder] Searching for HTML files in:', this.projectRoot);
 
     try {
       const htmlFiles = await glob(htmlPatterns, {
         cwd: this.projectRoot,
         absolute: true,
-        ignore: ['**/node_modules/**', '**/dist/**'],
+        ignore: ['**/node_modules/**', '**/dist/**', '**/build/**'],
       });
+
+      console.log('[Finder] Found HTML files:', htmlFiles);
 
       const results: SourceFile[] = [];
 
@@ -125,12 +131,21 @@ export class SourceFileFinder {
         try {
           const content = await readFile(filePath, 'utf-8');
           
-          // Calculate relevance based on matching element attributes
-          let relevance = 0.5;
+          // Base relevance - always consider HTML files as candidates
+          let relevance = 0.3;
+          
+          // Check for matching tag name in content
+          const tagName = context.element.tagName.toLowerCase();
+          if (content.toLowerCase().includes(`<${tagName}`)) {
+            relevance += 0.2;
+          }
           
           // Check for text content match
-          if (context.element.textContent && content.includes(context.element.textContent.trim())) {
-            relevance += 0.3;
+          if (context.element.textContent) {
+            const textContent = context.element.textContent.trim();
+            if (textContent && textContent.length > 0 && content.includes(textContent)) {
+              relevance += 0.3;
+            }
           }
           
           // Check for id match
@@ -149,20 +164,39 @@ export class SourceFileFinder {
             }
           }
 
-          if (relevance > 0.5) {
+          // Always include HTML files with at least base relevance
+          // If the tag exists in the file, that's enough to be a candidate
+          if (relevance >= 0.3) {
             results.push({
               path: filePath,
               relevance: Math.min(relevance, 1.0),
               lineStart: 1,
             });
+            console.log('[Finder] Matched file:', filePath, 'relevance:', relevance);
           }
-        } catch {
-          // Skip files that can't be read
+        } catch (err) {
+          console.error('[Finder] Error reading file:', filePath, err);
         }
       }
 
-      return results.sort((a, b) => b.relevance - a.relevance);
-    } catch {
+      // If we found any results, return them sorted by relevance
+      if (results.length > 0) {
+        return results.sort((a, b) => b.relevance - a.relevance);
+      }
+
+      // If no matches found but we have HTML files, return the first one as fallback
+      if (htmlFiles.length > 0) {
+        console.log('[Finder] No matches, using fallback:', htmlFiles[0]);
+        return [{
+          path: htmlFiles[0],
+          relevance: 0.5,
+          lineStart: 1,
+        }];
+      }
+
+      return [];
+    } catch (err) {
+      console.error('[Finder] Error searching for HTML files:', err);
       return [];
     }
   }

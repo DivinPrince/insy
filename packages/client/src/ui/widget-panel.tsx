@@ -189,21 +189,6 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
       >
         Click & drag button to reposition
       </div>
-
-      <style>
-        {`
-          @keyframes slideUp {
-            from {
-              opacity: 0;
-              transform: translateY(10px);
-            }
-            to {
-              opacity: 1;
-              transform: translateY(0);
-            }
-          }
-        `}
-      </style>
     </div>
   );
 };

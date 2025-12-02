@@ -58,13 +58,6 @@ export const Loading: FunctionComponent<LoadingProps> = ({ stage, message, progr
           />
         </div>
       )}
-      <style>
-        {`
-          @keyframes spin {
-            to { transform: rotate(360deg); }
-          }
-        `}
-      </style>
     </div>
   );
 };

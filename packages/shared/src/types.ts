@@ -94,6 +94,23 @@ export interface SourceFile {
 }
 
 // ============================================================================
+// Tool & Model Management
+// ============================================================================
+
+export interface ToolInfo {
+  name: string;           // e.g., "OpenCode"
+  identifier: string;     // e.g., "opencode" (lowercase, used for registry lookup)
+  version?: string;
+  available: boolean;
+}
+
+export interface ModelInfo {
+  id: string;             // e.g., "claude-sonnet-4.5", "gpt-5"
+  name: string;           // Display name
+  provider?: string;      // Optional provider info
+}
+
+// ============================================================================
 // Code Modifications
 // ============================================================================
 
@@ -150,6 +167,8 @@ export interface PromptSubmitPayload {
   elementId: string;
   prompt: string;
   mode?: 'preview' | 'auto-apply';
+  tool?: string;          // User-selected tool
+  model?: string;         // User-selected model
 }
 
 export interface DiffApprovalPayload {
@@ -162,6 +181,23 @@ export interface ConfigUpdatePayload {
   provider?: 'openai' | 'anthropic' | 'opencode';
   model?: string;
   autoApply?: boolean;
+  tool?: string;          // Tool preference
+}
+
+// New Tool & Model Payloads
+
+export interface ToolsListPayload {
+  tools: ToolInfo[];
+}
+
+export interface ModelsListPayload {
+  tool: string;           // Tool identifier
+  models: ModelInfo[];
+}
+
+export interface ToolConfigPayload {
+  tool?: string;          // Selected tool identifier
+  model?: string;         // Selected model ID
 }
 
 // Server → Client Messages

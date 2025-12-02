@@ -12,6 +12,10 @@ import type {
   PromptSubmitPayload,
   DiffApprovalPayload,
   StatusUpdatePayload,
+  ToolInfo,
+  ToolsListPayload,
+  ModelsListPayload,
+  ToolConfigPayload,
 } from '@pixelcode/shared';
 
 import { PixelCodeWebSocketServer } from './websocket/server.js';
@@ -20,9 +24,9 @@ import { DiffGenerator } from './modifier/diff.js';
 import { FileWriter } from './filesystem/writer.js';
 import { ConfigLoader } from './config/loader.js';
 import { AdapterRegistry } from './adapters/registry.js';
-import { OpenCodeCLIAdapter } from './adapters/opencode-cli.js';
 import { buildOpenCodePrompt, parseOpenCodeResponse } from './prompts/builder.js';
 import type { CLIToolAdapter } from './adapters/interface.js';
+import { OpenCodeError } from './adapters/opencode-cli.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -82,6 +86,21 @@ export class PixelCodeServer {
 
   private setupWebSocket(server: any): void {
     this.wsServer = new PixelCodeWebSocketServer(server);
+
+    // List available tools
+    this.wsServer.on('tools:list', async (ws, message) => {
+      await this.handleToolsList(ws, message);
+    });
+
+    // List models for a specific tool
+    this.wsServer.on('models:list', async (ws, message) => {
+      await this.handleModelsList(ws, message);
+    });
+
+    // Update tool/model configuration
+    this.wsServer.on('config:update', async (ws, message) => {
+      await this.handleConfigUpdate(ws, message);
+    });
 
     // Element selection
     this.wsServer.on('element:select', async (ws, message) => {
@@ -148,15 +167,24 @@ export class PixelCodeServer {
       // Stage 2: Read source code
       const sourceCode = await readFile(primarySource.path, 'utf-8');
 
-      // Stage 3: Build prompt for OpenCode
-      this.sendStatus(ws, 'ai_processing', 'Building prompt for OpenCode...', 40);
+      // Stage 3: Build prompt for CLI
+      this.sendStatus(ws, 'ai_processing', 'Building prompt...', 40);
 
       // Add user's prompt to context
       const contextWithPrompt = { ...context, prompt: payload.prompt };
       const prompt = buildOpenCodePrompt(contextWithPrompt, sourceCode, primarySource.path);
 
-      // Stage 4: Execute OpenCode CLI
-      if (!this.currentAdapter) {
+      // Stage 4: Execute CLI - Use tool from payload or fallback to current adapter
+      let adapter = this.currentAdapter;
+      if (payload.tool) {
+        const requestedAdapter = await this.adapterRegistry.getAdapter(payload.tool);
+        if (requestedAdapter) {
+          adapter = requestedAdapter;
+          console.log(`[Server] Using requested tool: ${adapter.name}`);
+        }
+      }
+
+      if (!adapter) {
         this.wsServer?.sendError(ws, 'NO_ADAPTER', 'No CLI tool adapter available');
         return;
       }
@@ -164,21 +192,21 @@ export class PixelCodeServer {
       this.sendStatus(
         ws,
         'ai_processing',
-        `Asking ${this.currentAdapter.name} to generate changes...`,
+        `Asking ${adapter.name} to generate changes...`,
         50
       );
 
       const config = this.configLoader.get();
-      const openCodeResponse = await this.currentAdapter.run(prompt, {
+      const cliResponse = await adapter.run(prompt, {
         session: config.opencode?.session,
-        model: config.opencode?.model,
+        model: payload.model || config.opencode?.model,  // Use model from payload or config
         continueSession: config.opencode?.continueSession,
         cwd: this.options.projectRoot || process.cwd(),
       });
 
       // Stage 5: Parse response
       this.sendStatus(ws, 'generating_diff', 'Parsing AI response...', 70);
-      const { code: modifiedCode } = parseOpenCodeResponse(openCodeResponse);
+      const { code: modifiedCode } = parseOpenCodeResponse(cliResponse);
 
       // Stage 6: Generate diff
       this.sendStatus(ws, 'generating_diff', 'Generating diff...', 85);
@@ -207,11 +235,42 @@ export class PixelCodeServer {
       this.sendStatus(ws, 'complete', 'Ready for review', 100);
     } catch (error) {
       console.error('[Server] Error handling prompt:', error);
+      
+      // Handle OpenCode-specific errors with more context
+      if (error instanceof OpenCodeError) {
+        let errorCode = 'AI_ERROR';
+        let userMessage = error.message;
+        
+        // Provide more user-friendly messages for common errors
+        if (error.errorName === 'ProviderAuthError') {
+          errorCode = 'AUTH_ERROR';
+          userMessage = `Authentication failed: ${error.message}`;
+        } else if (error.errorName === 'RateLimitError') {
+          errorCode = 'RATE_LIMIT';
+          userMessage = 'Rate limit exceeded. Please wait a moment and try again.';
+        } else if (error.errorName === 'ProviderError') {
+          errorCode = 'PROVIDER_ERROR';
+          userMessage = `AI provider error: ${error.message}`;
+        }
+        
+        this.wsServer?.sendError(ws, errorCode, userMessage, {
+          errorName: error.errorName,
+          providerID: error.providerID,
+        });
+        
+        // Also send a status update to clear the loading state
+        this.sendStatus(ws, 'error', userMessage, 0);
+        return;
+      }
+      
       this.wsServer?.sendError(
         ws,
         'PROCESSING_ERROR',
         error instanceof Error ? error.message : 'Unknown error'
       );
+      
+      // Send error status to clear loading state
+      this.sendStatus(ws, 'error', error instanceof Error ? error.message : 'An error occurred', 0);
     }
   }
 
@@ -260,6 +319,92 @@ export class PixelCodeServer {
     }
   }
 
+  private async handleToolsList(ws: WebSocket, message: Message): Promise<void> {
+    try {
+      const available = await this.adapterRegistry.getAvailableWithPriority();
+      
+      const tools: ToolInfo[] = await Promise.all(
+        available.map(async (adapter) => ({
+          name: adapter.name,
+          identifier: adapter.name.toLowerCase().replace(/\s+/g, '-'),
+          version: adapter.getVersion ? await adapter.getVersion() : undefined,
+          available: true,
+        }))
+      );
+
+      this.wsServer?.send(ws, {
+        id: crypto.randomUUID(),
+        type: 'tools:list:response',
+        payload: { tools } as ToolsListPayload,
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      console.error('[Server] Error listing tools:', error);
+      this.wsServer?.sendError(ws, 'TOOLS_LIST_ERROR', 'Failed to list tools');
+    }
+  }
+
+  private async handleModelsList(ws: WebSocket, message: Message): Promise<void> {
+    const payload = message.payload as { tool: string };
+    
+    try {
+      const adapter = await this.adapterRegistry.getAdapter(payload.tool);
+      
+      if (!adapter) {
+        this.wsServer?.sendError(ws, 'TOOL_NOT_FOUND', `Tool '${payload.tool}' not found`);
+        return;
+      }
+
+      const models = adapter.getAvailableModels 
+        ? await adapter.getAvailableModels() 
+        : [];
+
+      this.wsServer?.send(ws, {
+        id: crypto.randomUUID(),
+        type: 'models:list:response',
+        payload: { tool: payload.tool, models } as ModelsListPayload,
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      console.error('[Server] Error listing models:', error);
+      this.wsServer?.sendError(ws, 'MODELS_LIST_ERROR', 'Failed to list models');
+    }
+  }
+
+  private async handleConfigUpdate(ws: WebSocket, message: Message): Promise<void> {
+    const payload = message.payload as ToolConfigPayload;
+    
+    try {
+      // Update current adapter if tool changed
+      if (payload.tool) {
+        const adapter = await this.adapterRegistry.getAdapter(payload.tool);
+        if (adapter) {
+          this.currentAdapter = adapter;
+          console.log(`[Server] Switched to ${adapter.name}`);
+        }
+      }
+
+      // Store model preference (could persist to config file later)
+      if (payload.model) {
+        const config = this.configLoader.get();
+        if (!config.opencode) {
+          config.opencode = {};
+        }
+        config.opencode.model = payload.model;
+      }
+
+      this.wsServer?.send(ws, {
+        id: crypto.randomUUID(),
+        type: 'config:update:response',
+        payload: { success: true },
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      console.error('[Server] Error updating config:', error);
+      this.wsServer?.sendError(ws, 'CONFIG_UPDATE_ERROR', 'Failed to update config');
+    }
+  }
+
   private sendStatus(ws: WebSocket, stage: string, message: string, progress?: number): void {
     this.wsServer?.send(ws, {
       id: crypto.randomUUID(),
@@ -274,33 +419,33 @@ export class PixelCodeServer {
     await this.configLoader.load();
     const config = this.configLoader.get();
 
-    // Setup adapters
-    const openCodeConfig = config.opencode || {};
-    const openCodeAdapter = new OpenCodeCLIAdapter(openCodeConfig);
-    this.adapterRegistry.register(openCodeAdapter);
-
-    // Detect available tools
+    // Setup adapters - register all available CLI tools
     console.log(pc.dim('Checking for available CLI tools...'));
-    const available = await this.adapterRegistry.detectAvailable();
+    this.adapterRegistry.registerDefaultAdapters();
+
+    // Detect available tools with priority ordering
+    const available = await this.adapterRegistry.getAvailableWithPriority();
 
     if (available.length === 0) {
       console.error();
       console.error(pc.red('✗ No CLI tools found'));
       console.error();
-      console.error('PixelCode requires OpenCode to be installed.');
+      console.error('PixelCode requires at least one AI CLI tool to be installed.');
       console.error();
-      console.error('Install OpenCode:');
-      console.error(pc.cyan('  https://opencode.ai'));
-      console.error();
-      console.error('Or use Homebrew:');
-      console.error(pc.cyan('  brew install opencode'));
+      console.error('Supported CLI tools (in order of priority):');
+      console.error(pc.cyan('  1. OpenCode:        https://opencode.ai'));
+      console.error(pc.cyan('  2. Claude Code:     https://code.claude.com'));
+      console.error(pc.cyan('  3. Gemini CLI:      npm install -g @google/gemini-cli'));
+      console.error(pc.cyan('  4. GitHub Copilot:  npm install -g @github/copilot'));
       console.error();
       process.exit(1);
     }
 
-    // Use configured tool or first available
-    const toolName = config.tool || 'opencode';
-    this.currentAdapter = this.adapterRegistry.get(toolName) || available[0];
+    // Use configured tool or first available (by priority)
+    const toolName = config.tool;
+    this.currentAdapter = toolName 
+      ? await this.adapterRegistry.getAdapter(toolName)
+      : available[0];
 
     if (this.currentAdapter && this.currentAdapter.getVersion) {
       const version = await this.currentAdapter.getVersion();

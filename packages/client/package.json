@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "html2canvas": "^1.4.1",
-    "preact": "^10.19.3"
+    "preact": "^10.19.3",
+    "react-grab": "^0.0.54"
   },
   "devDependencies": {
     "@pixelcode/shared": "workspace:*",

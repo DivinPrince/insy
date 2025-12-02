@@ -3,9 +3,7 @@ import { WebSocketClient } from './websocket/client.js';
 import { ElementSelector } from './core/selector.js';
 import { detectFramework, captureFrameworkContext } from './frameworks/detector.js';
 import { captureElement, extractSourceHints } from './core/capture.js';
-import { PromptInput } from './ui/prompt.js';
-import { DiffViewer } from './ui/diff-viewer.js';
-import { Loading } from './ui/loading.js';
+import { ChatPanel, type ChatState, type ChatMessage, type DiffPreview } from './ui/chat-panel.js';
 import { Toast } from './ui/toast.js';
 import { WidgetButton } from './ui/widget-button.js';
 import { WidgetPanel } from './ui/widget-panel.js';
@@ -14,12 +12,14 @@ import type {
   Message,
   ElementContext,
   ElementInfo,
-  DiffResult,
   StatusUpdatePayload,
   DiffGeneratedPayload,
   ErrorPayload,
-  createMessage,
   RecentEdit,
+  ToolInfo,
+  ModelInfo,
+  ToolsListPayload,
+  ModelsListPayload,
 } from '@pixelcode/shared';
 
 // Simple ID generator (crypto.randomUUID not available in browser without polyfill)
@@ -34,10 +34,29 @@ class PixelCode {
   private isConnected = false;
   private currentElementId: string | null = null;
   private uiContainer: HTMLDivElement;
+  private uiShadowRoot: ShadowRoot;
   private widgetContainer: HTMLDivElement;
+  private widgetShadowRoot: ShadowRoot;
+  private buttonContainer: HTMLDivElement | null = null;
+  private buttonShadowRoot: ShadowRoot | null = null;
   private widgetExpanded = false;
   private widgetPosition = { x: 20, y: 20 };
   private recentEdits: RecentEdit[] = [];
+  
+  // Chat panel state
+  private chatState: ChatState = 'prompt';
+  private chatMessages: ChatMessage[] = [];
+  private chatPosition = { x: 100, y: 100 };
+  private currentDiff: DiffPreview | null = null;
+  private currentDiffFile: string = '';
+  private statusMessage: string = '';
+  private statusProgress: number = 0;
+  
+  // Tool & Model state
+  private availableTools: ToolInfo[] = [];
+  private selectedTool: string = '';
+  private availableModels: ModelInfo[] = [];
+  private selectedModel: string = '';
 
   constructor() {
     // Load preferences
@@ -46,17 +65,27 @@ class PixelCode {
     this.widgetExpanded = prefs.expanded;
     this.recentEdits = PreferencesStore.getRecentEdits();
 
-    // Create UI container
+    // Create UI container with Shadow DOM for style isolation
+    const uiHost = document.createElement('div');
+    uiHost.setAttribute('data-pixelcode', 'true');
+    uiHost.id = 'pixelcode-ui';
+    document.body.appendChild(uiHost);
+    this.uiShadowRoot = uiHost.attachShadow({ mode: 'open' });
     this.uiContainer = document.createElement('div');
-    this.uiContainer.setAttribute('data-pixelcode', 'true');
-    this.uiContainer.id = 'pixelcode-ui';
-    document.body.appendChild(this.uiContainer);
+    this.uiContainer.id = 'pixelcode-ui-root';
+    this.uiShadowRoot.appendChild(this.createBaseStyles());
+    this.uiShadowRoot.appendChild(this.uiContainer);
 
-    // Create widget container (separate for better layering)
+    // Create widget container with Shadow DOM for style isolation
+    const widgetHost = document.createElement('div');
+    widgetHost.setAttribute('data-pixelcode', 'true');
+    widgetHost.id = 'pixelcode-widget';
+    document.body.appendChild(widgetHost);
+    this.widgetShadowRoot = widgetHost.attachShadow({ mode: 'open' });
     this.widgetContainer = document.createElement('div');
-    this.widgetContainer.setAttribute('data-pixelcode', 'true');
-    this.widgetContainer.id = 'pixelcode-widget';
-    document.body.appendChild(this.widgetContainer);
+    this.widgetContainer.id = 'pixelcode-widget-root';
+    this.widgetShadowRoot.appendChild(this.createBaseStyles());
+    this.widgetShadowRoot.appendChild(this.widgetContainer);
 
     // Initialize WebSocket
     const wsUrl = this.getWebSocketUrl();
@@ -122,6 +151,12 @@ class PixelCode {
         case 'error':
           this.handleError(message.payload as ErrorPayload);
           break;
+        case 'tools:list:response':
+          this.handleToolsList(message.payload as ToolsListPayload);
+          break;
+        case 'models:list:response':
+          this.handleModelsList(message.payload as ModelsListPayload);
+          break;
       }
     });
   }
@@ -134,14 +169,31 @@ class PixelCode {
     }
   }
 
-  private activate(): void {
+  private activate(multiSelect: boolean = false): void {
     this.isActive = true;
     this.widgetExpanded = false; // Close panel when activating
-    this.selector.activate((element, info) => {
-      this.handleElementSelect(element, info);
-    });
-    this.renderWidget();
-    this.showToast('Select an element to modify', 'info');
+    
+    if (multiSelect) {
+      this.selector.activate(
+        (element, info) => {
+          this.handleElementSelect(element, info);
+        },
+        {
+          multiSelect: true,
+          onMultiSelect: (elements) => {
+            this.handleMultiElementSelect(elements);
+          }
+        }
+      );
+      this.renderWidget();
+      this.showToast('Multi-select mode: Click elements, press Enter when done', 'info');
+    } else {
+      this.selector.activate((element, info) => {
+        this.handleElementSelect(element, info);
+      });
+      this.renderWidget();
+      this.showToast('Select an element to modify', 'info');
+    }
   }
 
   private deactivate(): void {
@@ -176,83 +228,250 @@ class PixelCode {
       })
     );
 
-    // Show prompt input
-    this.showPromptInput(element);
-
-    // Deactivate selector
-    this.selector.deactivate();
-  }
-
-  private showPromptInput(element: HTMLElement): void {
+    // Reset chat state and show chat panel
+    this.chatState = 'prompt';
+    this.chatMessages = [];
+    this.currentDiff = null;
+    
+    // Position chat panel below the selected element
     const rect = element.getBoundingClientRect();
-    const position = {
+    this.chatPosition = {
       x: rect.left,
       y: rect.bottom + 10,
     };
+    
+    // Request available tools when opening chat panel
+    this.requestTools();
+    
+    this.renderChatPanel();
 
+    // Deactivate selector but stay in active mode
+    this.selector.deactivate();
+    this.isActive = false;
+    this.renderWidget();
+  }
+
+  private handleMultiElementSelect(elements: Array<{ element: HTMLElement; info: ElementInfo }>): void {
+    if (elements.length === 0) return;
+
+    // Detect framework (assuming all elements are from the same framework)
+    const framework = detectFramework();
+    
+    // Create context for each element
+    const contexts: ElementContext[] = elements.map(({ element, info }) => {
+      const frameworkContext = captureFrameworkContext(element, framework);
+      const sourceHints = extractSourceHints(element);
+      
+      return {
+        element: info,
+        framework,
+        frameworkContext,
+        sourceHints,
+      };
+    });
+
+    // Generate unique ID for this multi-select operation
+    this.currentElementId = generateId();
+
+    // Send all elements to server
+    this.ws.send(
+      this.createMessage('elements:select', {
+        elements: contexts,
+        elementId: this.currentElementId,
+      })
+    );
+
+    // Reset chat state and show chat panel
+    this.chatState = 'prompt';
+    this.chatMessages = [];
+    this.currentDiff = null;
+    
+    // Position chat panel based on the first selected element
+    const firstElementRect = elements[0].element.getBoundingClientRect();
+    this.chatPosition = {
+      x: firstElementRect.left,
+      y: firstElementRect.bottom + 10,
+    };
+    
+    // Request available tools when opening chat panel
+    this.requestTools();
+    
+    this.renderChatPanel();
+
+    // Deactivate selector but stay in active mode
+    this.selector.deactivate();
+    this.isActive = false;
+    this.renderWidget();
+    
+    this.showToast(`${elements.length} elements selected`, 'success');
+  }
+
+  private renderChatPanel(): void {
     render(
-      <PromptInput
-        position={position}
-        onSubmit={(prompt) => this.handlePromptSubmit(prompt)}
-        onCancel={() => this.clearUI()}
+      <ChatPanel
+        position={this.chatPosition}
+        state={this.chatState}
+        messages={this.chatMessages}
+        diff={this.currentDiff || undefined}
+        statusMessage={this.statusMessage}
+        progress={this.statusProgress}
+        tools={this.availableTools}
+        selectedTool={this.selectedTool}
+        models={this.availableModels}
+        selectedModel={this.selectedModel}
+        onToolChange={(tool) => this.handleToolChange(tool)}
+        onModelChange={(model) => this.handleModelChange(model)}
+        onSubmitPrompt={(prompt) => this.handlePromptSubmit(prompt)}
+        onApplyDiff={() => this.handleDiffApprove(this.currentDiff?.diffId || '')}
+        onRejectDiff={() => this.handleDiffReject(this.currentDiff?.diffId || '')}
+        onClose={() => this.closeChatPanel()}
+        onRetry={() => this.handleRetry()}
       />,
       this.uiContainer
     );
   }
 
+  private handleRetry(): void {
+    // Reset to prompt state so user can try again
+    this.chatState = 'prompt';
+    this.statusMessage = '';
+    this.statusProgress = 0;
+    this.renderChatPanel();
+  }
+
+  private closeChatPanel(): void {
+    this.clearUI();
+    this.currentElementId = null;
+    this.chatMessages = [];
+    this.currentDiff = null;
+    this.chatState = 'prompt';
+  }
+
   private handlePromptSubmit(prompt: string): void {
     if (!this.currentElementId) return;
+
+    // Add user message to chat
+    this.chatMessages.push({
+      id: generateId(),
+      type: 'user',
+      content: prompt,
+      timestamp: Date.now(),
+    });
+
+    // Update state to loading
+    this.chatState = 'loading';
+    this.statusMessage = 'Sending request...';
+    this.statusProgress = 0;
+    this.renderChatPanel();
 
     this.ws.send(
       this.createMessage('prompt:submit', {
         elementId: this.currentElementId,
         prompt,
         mode: 'preview',
+        tool: this.selectedTool || undefined,
+        model: this.selectedModel || undefined,
       })
     );
+  }
 
-    this.clearUI();
+  private handleToolsList(payload: ToolsListPayload): void {
+    this.availableTools = payload.tools;
+    
+    // Select first tool if none selected
+    if (!this.selectedTool && payload.tools.length > 0) {
+      this.selectedTool = payload.tools[0].identifier;
+      // Request models for the selected tool
+      this.requestModels(this.selectedTool);
+    }
+    
+    this.renderChatPanel();
+  }
+
+  private handleModelsList(payload: ModelsListPayload): void {
+    this.availableModels = payload.models;
+    
+    // Select first model if none selected
+    if (!this.selectedModel && payload.models.length > 0) {
+      this.selectedModel = payload.models[0].id;
+    }
+    
+    this.renderChatPanel();
+  }
+
+  private requestTools(): void {
+    this.ws.send(this.createMessage('tools:list', {}));
+  }
+
+  private requestModels(toolIdentifier: string): void {
+    this.ws.send(this.createMessage('models:list', { tool: toolIdentifier }));
+  }
+
+  private handleToolChange(toolIdentifier: string): void {
+    this.selectedTool = toolIdentifier;
+    this.selectedModel = ''; // Reset model when tool changes
+    this.availableModels = []; // Clear models
+    this.requestModels(toolIdentifier);
+    this.renderChatPanel();
+  }
+
+  private handleModelChange(modelId: string): void {
+    this.selectedModel = modelId;
+    this.renderChatPanel();
   }
 
   private handleStatusUpdate(payload: StatusUpdatePayload): void {
-    render(
-      <Loading stage={payload.stage} message={payload.message} progress={payload.progress} />,
-      this.uiContainer
-    );
+    // Don't override diff state with status updates
+    if (this.chatState === 'diff' || this.chatState === 'applying' || this.chatState === 'complete') {
+      return;
+    }
+    
+    this.statusMessage = payload.message;
+    this.statusProgress = payload.progress || 0;
+    this.chatState = 'loading';
+    this.renderChatPanel();
   }
 
   private handleDiffGenerated(payload: DiffGeneratedPayload): void {
-    const diff: DiffResult = {
-      id: payload.diffId,
-      file: payload.file,
-      originalCode: payload.preview.before,
-      modifiedCode: payload.preview.after,
-      unifiedDiff: payload.diff,
-      hunks: [], // Will be parsed from unifiedDiff
-    };
+    // Add system message
+    this.chatMessages.push({
+      id: generateId(),
+      type: 'system',
+      content: `Changes ready for ${payload.file.split(/[/\\]/).pop() || payload.file}`,
+      timestamp: Date.now(),
+    });
 
-    render(
-      <DiffViewer
-        diff={diff}
-        onApply={() => this.handleDiffApprove(payload.diffId)}
-        onReject={() => this.handleDiffReject(payload.diffId)}
-      />,
-      this.uiContainer
-    );
+    // Store diff for preview
+    this.currentDiff = {
+      file: payload.file,
+      before: payload.preview.before,
+      after: payload.preview.after,
+      diffId: payload.diffId,
+    };
+    this.currentDiffFile = payload.file;
+
+    // Update state to show diff
+    this.chatState = 'diff';
+    this.renderChatPanel();
   }
 
   private handleDiffApprove(diffId: string): void {
+    if (!diffId) return;
+    
+    this.chatState = 'applying';
+    this.renderChatPanel();
+
     this.ws.send(
       this.createMessage('diff:approve', {
         diffId,
         action: 'apply',
       })
     );
-
-    this.showLoading('Applying changes', 'Writing to disk...');
   }
 
   private handleDiffReject(diffId: string): void {
+    if (!diffId) return;
+    
     this.ws.send(
       this.createMessage('diff:approve', {
         diffId,
@@ -260,19 +479,38 @@ class PixelCode {
       })
     );
 
-    this.clearUI();
-    this.showToast('Changes rejected', 'info');
+    // Add message and reset to prompt state
+    this.chatMessages.push({
+      id: generateId(),
+      type: 'system',
+      content: 'Changes rejected. What else would you like to change?',
+      timestamp: Date.now(),
+    });
+    this.currentDiff = null;
+    this.chatState = 'prompt';
+    this.renderChatPanel();
   }
 
   private handleDiffApplied(): void {
-    this.clearUI();
+    // Add success message
+    this.chatMessages.push({
+      id: generateId(),
+      type: 'system',
+      content: '✓ Changes applied successfully!',
+      timestamp: Date.now(),
+    });
+    
+    this.chatState = 'complete';
+    this.currentDiff = null;
+    this.renderChatPanel();
+    
     this.showToast('Changes applied successfully!', 'success');
     
-    // Add to recent edits (we'll need to track the file from the diff)
-    if (this.currentElementId) {
+    // Add to recent edits
+    if (this.currentElementId && this.currentDiffFile) {
       const edit: RecentEdit = {
         id: generateId(),
-        file: 'component.tsx', // TODO: Track actual file from context
+        file: this.currentDiffFile,
         timestamp: Date.now(),
         description: 'Updated component',
       };
@@ -282,41 +520,131 @@ class PixelCode {
       this.renderWidget();
     }
     
-    this.currentElementId = null;
+    // Close chat panel after a short delay
+    setTimeout(() => {
+      this.closeChatPanel();
+    }, 1500);
   }
 
   private handleError(payload: ErrorPayload): void {
-    this.clearUI();
+    // Add error message to chat
+    this.chatMessages.push({
+      id: generateId(),
+      type: 'error',
+      content: payload.message,
+      timestamp: Date.now(),
+    });
+    
+    // Set state to error temporarily, then back to prompt
+    this.chatState = 'error';
+    this.currentDiff = null;
+    this.statusMessage = payload.message;
+    this.statusProgress = 0;
+    this.renderChatPanel();
+    
+    // Show toast for visibility
     this.showToast(payload.message, 'error');
   }
 
-  private showLoading(stage: string, message: string): void {
-    render(<Loading stage={stage} message={message} />, this.uiContainer);
-  }
-
   private showToast(message: string, variant: 'info' | 'success' | 'error' | 'warning'): void {
+    // Create toast container with Shadow DOM
+    const host = document.createElement('div');
+    host.setAttribute('data-pixelcode', 'true');
+    document.body.appendChild(host);
+    const shadow = host.attachShadow({ mode: 'open' });
     const container = document.createElement('div');
-    container.setAttribute('data-pixelcode', 'true');
-    document.body.appendChild(container);
+    shadow.appendChild(this.createBaseStyles());
+    shadow.appendChild(container);
 
     render(
       <Toast
         message={message}
         variant={variant}
         onClose={() => {
-          container.remove();
+          host.remove();
         }}
       />,
       container
     );
 
     setTimeout(() => {
-      container.remove();
+      host.remove();
     }, 5000);
   }
 
   private clearUI(): void {
     render(null, this.uiContainer);
+  }
+
+  /** Creates base styles for Shadow DOM to reset and isolate styles */
+  private createBaseStyles(): HTMLStyleElement {
+    const style = document.createElement('style');
+    style.textContent = `
+      /* Reset all inherited styles */
+      :host {
+        all: initial;
+        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        font-size: 14px;
+        line-height: 1.5;
+        color: #fff;
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+      }
+      
+      /* Reset all elements inside */
+      *, *::before, *::after {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        font: inherit;
+        vertical-align: baseline;
+      }
+      
+      /* Keyframe animations */
+      @keyframes spin {
+        from { transform: rotate(0deg); }
+        to { transform: rotate(360deg); }
+      }
+      
+      @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(-10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      
+      @keyframes slideIn {
+        from { opacity: 0; transform: translateX(20px); }
+        to { opacity: 1; transform: translateX(0); }
+      }
+      
+      @keyframes slideUp {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      
+      @keyframes pulse {
+        0%, 100% { box-shadow: 0 8px 24px rgba(59, 130, 246, 0.4); }
+        50% { box-shadow: 0 8px 32px rgba(59, 130, 246, 0.6); }
+      }
+      
+      /* Base element styles */
+      button {
+        cursor: pointer;
+        background: none;
+        border: none;
+        font-family: inherit;
+      }
+      
+      input, select, textarea {
+        font-family: inherit;
+        font-size: inherit;
+      }
+      
+      select {
+        appearance: auto;
+      }
+    `;
+    return style;
   }
 
   private createMessage<T>(type: string, payload: T): Message<T> {
@@ -347,14 +675,18 @@ class PixelCode {
       render(null, this.widgetContainer);
     }
 
-    // Always render button (in a second container element for layering)
-    const buttonContainer = document.getElementById('pixelcode-button-container') || (() => {
-      const div = document.createElement('div');
-      div.id = 'pixelcode-button-container';
-      div.setAttribute('data-pixelcode', 'true');
-      document.body.appendChild(div);
-      return div;
-    })();
+    // Always render button (in a Shadow DOM container for style isolation)
+    if (!this.buttonContainer) {
+      const buttonHost = document.createElement('div');
+      buttonHost.id = 'pixelcode-button-host';
+      buttonHost.setAttribute('data-pixelcode', 'true');
+      document.body.appendChild(buttonHost);
+      this.buttonShadowRoot = buttonHost.attachShadow({ mode: 'open' });
+      this.buttonContainer = document.createElement('div');
+      this.buttonContainer.id = 'pixelcode-button-container';
+      this.buttonShadowRoot.appendChild(this.createBaseStyles());
+      this.buttonShadowRoot.appendChild(this.buttonContainer);
+    }
 
     render(
       <WidgetButton
@@ -364,7 +696,7 @@ class PixelCode {
         position={this.widgetPosition}
         onPositionChange={(pos) => this.handleWidgetPositionChange(pos)}
       />,
-      buttonContainer
+      this.buttonContainer
     );
   }
 

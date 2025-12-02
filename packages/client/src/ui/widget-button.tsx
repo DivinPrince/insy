@@ -102,14 +102,6 @@ export const WidgetButton: FunctionComponent<WidgetButtonProps> = ({
       >
         <StatusBadge connected={connected} compact />
       </div>
-      <style>
-        {`
-          @keyframes pulse {
-            0%, 100% { box-shadow: 0 8px 24px rgba(59, 130, 246, 0.4); }
-            50% { box-shadow: 0 8px 32px rgba(59, 130, 246, 0.6); }
-          }
-        `}
-      </style>
     </button>
   );
 };
