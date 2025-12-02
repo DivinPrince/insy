@@ -1,7 +1,7 @@
 import { h } from 'preact';
-import { useState } from 'preact/hooks';
+import { useState, useRef, useEffect } from 'preact/hooks';
 import type { FunctionComponent } from 'preact';
-import type { ToolInfo, ModelInfo } from '@pixelcode/shared';
+import type { ToolInfo, ModelInfo, CodeChangeAction } from '@pixelcode/shared';
 
 export type ChatState = 'prompt' | 'loading' | 'diff' | 'applying' | 'complete' | 'error';
 
@@ -17,13 +17,41 @@ export interface DiffPreview {
   before: string;
   after: string;
   diffId: string;
+  action?: CodeChangeAction;  // 'create' | 'modify' | 'delete'
 }
+
+// Cursor icon for element selector
+const CursorIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" />
+    <path d="M13 13l6 6" />
+  </svg>
+);
+
+// Terminal icon for console logs
+const TerminalIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="4 17 10 11 4 5" />
+    <line x1="12" y1="19" x2="20" y2="19" />
+  </svg>
+);
+
+// Send icon
+const SendIcon = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <circle cx="12" cy="12" r="10" />
+    <path d="M12 16l4-4-4-4" />
+    <path d="M8 12h8" />
+  </svg>
+);
 
 interface ChatPanelProps {
   position: { x: number; y: number };
   state: ChatState;
   messages: ChatMessage[];
   diff?: DiffPreview;
+  diffs?: DiffPreview[];  // Multiple diffs support
+  diffSummary?: string;   // Summary of all changes
   statusMessage?: string;
   progress?: number;
   // Tool & Model selection
@@ -34,10 +62,20 @@ interface ChatPanelProps {
   onToolChange?: (toolIdentifier: string) => void;
   onModelChange?: (modelId: string) => void;
   onSubmitPrompt: (prompt: string) => void;
-  onApplyDiff: () => void;
-  onRejectDiff: () => void;
+  onApplyDiff: (diffId?: string) => void;  // Optional diffId for specific diff
+  onRejectDiff: (diffId?: string) => void; // Optional diffId for specific diff
+  onApplyAllDiffs?: () => void;   // Apply all diffs at once
+  onRejectAllDiffs?: () => void;  // Reject all diffs at once
   onClose: () => void;
   onRetry?: () => void;
+  // New actions
+  onSelectElement?: () => void;
+  onTagConsole?: () => void;
+  isSelectingElement?: boolean;
+  // Undo/Keep actions
+  hasChanges?: boolean;
+  onUndoAll?: () => void;
+  onKeepAll?: () => void;
 }
 
 export const ChatPanel: FunctionComponent<ChatPanelProps> = ({
@@ -45,6 +83,8 @@ export const ChatPanel: FunctionComponent<ChatPanelProps> = ({
   state,
   messages,
   diff,
+  diffs,
+  diffSummary,
   statusMessage,
   progress,
   tools,
@@ -56,11 +96,32 @@ export const ChatPanel: FunctionComponent<ChatPanelProps> = ({
   onSubmitPrompt,
   onApplyDiff,
   onRejectDiff,
+  onApplyAllDiffs,
+  onRejectAllDiffs,
   onClose,
   onRetry,
+  onSelectElement,
+  onTagConsole,
+  isSelectingElement,
+  hasChanges,
+  onUndoAll,
+  onKeepAll,
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [showSettings, setShowSettings] = useState(false);
+  const [selectedDiffIndex, setSelectedDiffIndex] = useState(0);
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+  
+  // Use diffs array if provided, otherwise wrap single diff
+  const allDiffs = diffs && diffs.length > 0 ? diffs : (diff ? [diff] : []);
+  const currentViewDiff = allDiffs[selectedDiffIndex] || null;
+
+  // Auto-show settings panel when error occurs so user can change tool/model
+  useEffect(() => {
+    if (state === 'error') {
+      setShowSettings(true);
+    }
+  }, [state]);
 
   const handleSubmit = (e: Event) => {
     e.preventDefault();
@@ -74,24 +135,35 @@ export const ChatPanel: FunctionComponent<ChatPanelProps> = ({
     if (e.key === 'Escape') {
       onClose();
     }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSubmit(e);
+    }
   };
+
+  // Auto-resize textarea
+  useEffect(() => {
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 120) + 'px';
+    }
+  }, [inputValue]);
 
   // Calculate position to stay within viewport
   const panelStyle: h.JSX.CSSProperties = {
     position: 'fixed',
-    left: `${Math.min(position.x, window.innerWidth - 420)}px`,
-    top: `${Math.min(position.y, window.innerHeight - 400)}px`,
-    width: '400px',
-    maxHeight: '500px',
-    backgroundColor: '#1a1a2e',
-    borderRadius: '12px',
-    boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
-    fontFamily: 'system-ui, -apple-system, sans-serif',
+    left: `${Math.min(position.x, window.innerWidth - 520)}px`,
+    top: `${Math.min(position.y, window.innerHeight - 500)}px`,
+    width: '500px',
+    maxHeight: '600px',
+    backgroundColor: '#fff',
+    borderRadius: '16px',
+    boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.25), 0 0 0 1px rgba(0, 0, 0, 0.05)',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
     zIndex: 999998,
     display: 'flex',
     flexDirection: 'column',
     overflow: 'hidden',
-    border: '1px solid #2d2d44',
   };
 
   return (
@@ -100,63 +172,111 @@ export const ChatPanel: FunctionComponent<ChatPanelProps> = ({
       <div
         style={{
           padding: '12px 16px',
-          borderBottom: '1px solid #2d2d44',
+          borderBottom: '1px solid #e5e5e5',
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'space-between',
-          backgroundColor: '#16162a',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ fontSize: '16px' }}>🎨</span>
-          <span style={{ color: '#fff', fontWeight: '600', fontSize: '14px' }}>PixelCode</span>
+          {hasChanges && (
+            <span style={{ fontSize: '12px', color: '#666' }}>1 File</span>
+          )}
           {state === 'loading' && (
             <span
               style={{
-                fontSize: '11px',
-                color: '#60a5fa',
-                backgroundColor: '#1e3a5f',
-                padding: '2px 8px',
-                borderRadius: '10px',
+                fontSize: '12px',
+                color: '#666',
+                backgroundColor: '#f5f5f5',
+                padding: '3px 10px',
+                borderRadius: '12px',
+                fontWeight: '500',
               }}
             >
               Processing...
             </span>
           )}
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {/* Undo All */}
+          {hasChanges && (
+            <button
+              onClick={onUndoAll}
+              style={{
+                background: 'transparent',
+                border: 'none',
+                color: '#666',
+                fontSize: '13px',
+                cursor: 'pointer',
+                padding: '6px 10px',
+                borderRadius: '6px',
+                fontWeight: '500',
+                fontFamily: 'inherit',
+              }}
+              title="Undo all changes"
+            >
+              Undo All
+            </button>
+          )}
+          {/* Keep All */}
+          {hasChanges && (
+            <button
+              onClick={onKeepAll}
+              style={{
+                background: '#000',
+                border: 'none',
+                color: '#fff',
+                fontSize: '13px',
+                cursor: 'pointer',
+                padding: '6px 12px',
+                borderRadius: '6px',
+                fontWeight: '500',
+                fontFamily: 'inherit',
+              }}
+              title="Keep all changes"
+            >
+              Keep All
+            </button>
+          )}
           {/* Settings Toggle */}
           <button
             onClick={() => setShowSettings(!showSettings)}
             style={{
-              background: showSettings ? '#2d2d44' : 'none',
+              background: showSettings ? '#f5f5f5' : 'transparent',
               border: 'none',
-              color: showSettings ? '#fff' : '#6b7280',
-              fontSize: '16px',
+              color: '#666',
+              fontSize: '14px',
               cursor: 'pointer',
-              padding: '4px 6px',
+              padding: '6px 8px',
               lineHeight: '1',
-              borderRadius: '4px',
+              borderRadius: '6px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
             }}
             title="Settings"
           >
-            ⚙️
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+            </svg>
           </button>
           <button
             onClick={onClose}
             style={{
-              background: 'none',
+              background: 'transparent',
               border: 'none',
-              color: '#6b7280',
-              fontSize: '18px',
+              color: '#999',
+              fontSize: '20px',
               cursor: 'pointer',
-              padding: '4px',
+              padding: '4px 8px',
               lineHeight: '1',
-              borderRadius: '4px',
+              borderRadius: '6px',
+              fontWeight: '300',
             }}
             title="Close"
           >
-            ✕
+            ×
           </button>
         </div>
       </div>
@@ -165,21 +285,22 @@ export const ChatPanel: FunctionComponent<ChatPanelProps> = ({
       {showSettings && (
         <div
           style={{
-            padding: '12px 16px',
-            borderBottom: '1px solid #2d2d44',
-            backgroundColor: '#16162a',
+            padding: '16px 20px',
+            borderBottom: '1px solid #e5e5e5',
+            backgroundColor: '#fafafa',
           }}
         >
           {/* Tool Selector */}
-          <div style={{ marginBottom: '10px' }}>
+          <div style={{ marginBottom: '12px' }}>
             <label
               style={{
                 display: 'block',
                 fontSize: '11px',
-                color: '#9ca3af',
-                marginBottom: '4px',
+                color: '#666',
+                marginBottom: '6px',
                 textTransform: 'uppercase',
                 letterSpacing: '0.5px',
+                fontWeight: '600',
               }}
             >
               AI Tool
@@ -190,15 +311,19 @@ export const ChatPanel: FunctionComponent<ChatPanelProps> = ({
               disabled={state === 'loading' || state === 'applying'}
               style={{
                 width: '100%',
-                padding: '8px 10px',
-                border: '1px solid #3d3d5c',
-                borderRadius: '6px',
-                backgroundColor: '#1a1a2e',
-                color: '#fff',
+                padding: '10px 12px',
+                border: '1px solid #e5e5e5',
+                borderRadius: '8px',
+                backgroundColor: '#fff',
+                color: '#000',
                 fontSize: '13px',
                 fontFamily: 'inherit',
                 cursor: state === 'loading' || state === 'applying' ? 'not-allowed' : 'pointer',
-                opacity: state === 'loading' || state === 'applying' ? 0.6 : 1,
+                opacity: state === 'loading' || state === 'applying' ? 0.5 : 1,
+                appearance: 'none',
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'right 12px center',
               }}
             >
               {!tools || tools.length === 0 ? (
@@ -219,10 +344,11 @@ export const ChatPanel: FunctionComponent<ChatPanelProps> = ({
               style={{
                 display: 'block',
                 fontSize: '11px',
-                color: '#9ca3af',
-                marginBottom: '4px',
+                color: '#666',
+                marginBottom: '6px',
                 textTransform: 'uppercase',
                 letterSpacing: '0.5px',
+                fontWeight: '600',
               }}
             >
               Model
@@ -233,15 +359,19 @@ export const ChatPanel: FunctionComponent<ChatPanelProps> = ({
               disabled={state === 'loading' || state === 'applying' || !models || models.length === 0}
               style={{
                 width: '100%',
-                padding: '8px 10px',
-                border: '1px solid #3d3d5c',
-                borderRadius: '6px',
-                backgroundColor: '#1a1a2e',
-                color: '#fff',
+                padding: '10px 12px',
+                border: '1px solid #e5e5e5',
+                borderRadius: '8px',
+                backgroundColor: '#fff',
+                color: '#000',
                 fontSize: '13px',
                 fontFamily: 'inherit',
                 cursor: state === 'loading' || state === 'applying' || !models || models.length === 0 ? 'not-allowed' : 'pointer',
-                opacity: state === 'loading' || state === 'applying' || !models || models.length === 0 ? 0.6 : 1,
+                opacity: state === 'loading' || state === 'applying' || !models || models.length === 0 ? 0.5 : 1,
+                appearance: 'none',
+                backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23666' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+                backgroundRepeat: 'no-repeat',
+                backgroundPosition: 'right 12px center',
               }}
             >
               {!models || models.length === 0 ? (
@@ -265,11 +395,11 @@ export const ChatPanel: FunctionComponent<ChatPanelProps> = ({
         style={{
           flex: 1,
           overflow: 'auto',
-          padding: '12px',
+          padding: '16px 20px',
           display: 'flex',
           flexDirection: 'column',
-          gap: '8px',
-          minHeight: '100px',
+          gap: '12px',
+          minHeight: '120px',
           maxHeight: '300px',
         }}
       >
@@ -277,26 +407,27 @@ export const ChatPanel: FunctionComponent<ChatPanelProps> = ({
           <div
             key={msg.id}
             style={{
-              padding: '8px 12px',
-              borderRadius: '8px',
+              padding: '10px 14px',
+              borderRadius: '12px',
               fontSize: '13px',
-              lineHeight: '1.4',
+              lineHeight: '1.5',
               ...(msg.type === 'user'
                 ? {
-                    backgroundColor: '#3b82f6',
+                    backgroundColor: '#000',
                     color: '#fff',
                     alignSelf: 'flex-end',
                     maxWidth: '85%',
                   }
                 : msg.type === 'error'
                 ? {
-                    backgroundColor: '#7f1d1d',
-                    color: '#fecaca',
+                    backgroundColor: '#fef2f2',
+                    color: '#dc2626',
                     alignSelf: 'flex-start',
+                    border: '1px solid #fecaca',
                   }
                 : {
-                    backgroundColor: '#2d2d44',
-                    color: '#d1d5db',
+                    backgroundColor: '#f5f5f5',
+                    color: '#333',
                     alignSelf: 'flex-start',
                   }),
             }}
@@ -309,18 +440,18 @@ export const ChatPanel: FunctionComponent<ChatPanelProps> = ({
         {state === 'loading' && statusMessage && (
           <div
             style={{
-              padding: '12px',
-              backgroundColor: '#2d2d44',
-              borderRadius: '8px',
-              color: '#d1d5db',
+              padding: '14px 16px',
+              backgroundColor: '#f5f5f5',
+              borderRadius: '12px',
+              color: '#333',
             }}
           >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: progress !== undefined ? '10px' : '0' }}>
               <div
                 style={{
-                  width: '16px',
-                  height: '16px',
-                  border: '2px solid #3b82f6',
+                  width: '14px',
+                  height: '14px',
+                  border: '2px solid #000',
                   borderTopColor: 'transparent',
                   borderRadius: '50%',
                   animation: 'spin 1s linear infinite',
@@ -332,8 +463,8 @@ export const ChatPanel: FunctionComponent<ChatPanelProps> = ({
               <div
                 style={{
                   width: '100%',
-                  height: '4px',
-                  backgroundColor: '#1a1a2e',
+                  height: '3px',
+                  backgroundColor: '#e5e5e5',
                   borderRadius: '2px',
                   overflow: 'hidden',
                 }}
@@ -342,7 +473,7 @@ export const ChatPanel: FunctionComponent<ChatPanelProps> = ({
                   style={{
                     width: `${progress}%`,
                     height: '100%',
-                    backgroundColor: '#3b82f6',
+                    backgroundColor: '#000',
                     transition: 'width 0.3s ease',
                   }}
                 />
@@ -355,27 +486,30 @@ export const ChatPanel: FunctionComponent<ChatPanelProps> = ({
         {state === 'error' && (
           <div
             style={{
-              padding: '12px',
-              backgroundColor: '#7f1d1d',
-              borderRadius: '8px',
-              color: '#fecaca',
+              padding: '14px 16px',
+              backgroundColor: '#fef2f2',
+              borderRadius: '12px',
+              border: '1px solid #fecaca',
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-              <span style={{ fontSize: '16px' }}>⚠️</span>
-              <span style={{ fontSize: '13px', fontWeight: '500' }}>Error occurred</span>
+              <span style={{ fontSize: '14px' }}>⚠</span>
+              <span style={{ fontSize: '13px', fontWeight: '500', color: '#dc2626' }}>Error occurred</span>
             </div>
-            <div style={{ fontSize: '12px', opacity: 0.9, marginBottom: '12px' }}>
+            <div style={{ fontSize: '12px', color: '#b91c1c', marginBottom: '8px' }}>
               {statusMessage || 'An error occurred while processing your request.'}
+            </div>
+            <div style={{ fontSize: '11px', color: '#666', marginBottom: '12px' }}>
+              Try selecting a different tool or model above, then try again.
             </div>
             <button
               onClick={() => onRetry?.()}
               style={{
-                padding: '6px 12px',
-                border: '1px solid #fecaca',
+                padding: '6px 14px',
+                border: '1px solid #dc2626',
                 borderRadius: '6px',
                 backgroundColor: 'transparent',
-                color: '#fecaca',
+                color: '#dc2626',
                 fontSize: '12px',
                 fontWeight: '500',
                 cursor: 'pointer',
@@ -388,208 +522,471 @@ export const ChatPanel: FunctionComponent<ChatPanelProps> = ({
         )}
 
         {/* Diff Preview */}
-        {state === 'diff' && diff && (
+        {state === 'diff' && allDiffs.length > 0 && (
           <div
             style={{
-              backgroundColor: '#0d1117',
-              borderRadius: '8px',
+              backgroundColor: '#fafafa',
+              borderRadius: '12px',
               overflow: 'hidden',
-              border: '1px solid #30363d',
+              border: '1px solid #e5e5e5',
             }}
           >
-            <div
-              style={{
-                padding: '8px 12px',
-                backgroundColor: '#161b22',
-                borderBottom: '1px solid #30363d',
-                fontSize: '12px',
-                color: '#8b949e',
-              }}
-            >
-              📄 {diff.file.split('/').pop() || diff.file}
-            </div>
-            <div
-              style={{
-                padding: '12px',
-                maxHeight: '200px',
-                overflow: 'auto',
-                fontFamily: 'Monaco, Consolas, monospace',
-                fontSize: '11px',
-                lineHeight: '1.5',
-              }}
-            >
-              {/* Simple before/after diff display */}
-              <div style={{ marginBottom: '8px' }}>
-                <div style={{ color: '#f85149', marginBottom: '4px' }}>- Before:</div>
-                <pre
+            {/* File tabs for multiple diffs */}
+            {allDiffs.length > 1 && (
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '2px',
+                  padding: '8px 8px 0',
+                  backgroundColor: '#f0f0f0',
+                  overflowX: 'auto',
+                }}
+              >
+                {allDiffs.map((d, index) => (
+                  <button
+                    key={d.diffId}
+                    onClick={() => setSelectedDiffIndex(index)}
+                    style={{
+                      padding: '6px 12px',
+                      border: 'none',
+                      borderRadius: '6px 6px 0 0',
+                      backgroundColor: selectedDiffIndex === index ? '#fff' : 'transparent',
+                      color: selectedDiffIndex === index ? '#000' : '#666',
+                      fontSize: '11px',
+                      fontWeight: selectedDiffIndex === index ? '600' : '400',
+                      cursor: 'pointer',
+                      fontFamily: 'inherit',
+                      whiteSpace: 'nowrap',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '4px',
+                    }}
+                  >
+                    {d.action === 'create' && <span style={{ color: '#16a34a' }}>+</span>}
+                    {d.action === 'delete' && <span style={{ color: '#dc2626' }}>−</span>}
+                    {d.action === 'modify' && <span style={{ color: '#ca8a04' }}>~</span>}
+                    {d.file.split(/[/\\]/).pop() || d.file}
+                  </button>
+                ))}
+              </div>
+            )}
+            
+            {currentViewDiff && (
+              <>
+                <div
                   style={{
-                    margin: 0,
-                    padding: '8px',
-                    backgroundColor: '#2d1f1f',
-                    borderRadius: '4px',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                    color: '#ffa7a7',
-                    maxHeight: '80px',
-                    overflow: 'auto',
+                    padding: '10px 14px',
+                    backgroundColor: '#f5f5f5',
+                    borderBottom: '1px solid #e5e5e5',
+                    fontSize: '12px',
+                    color: '#666',
+                    fontWeight: '500',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
                   }}
                 >
-                  {diff.before.substring(0, 500)}{diff.before.length > 500 ? '...' : ''}
-                </pre>
-              </div>
-              <div>
-                <div style={{ color: '#3fb950', marginBottom: '4px' }}>+ After:</div>
-                <pre
+                  {currentViewDiff.action === 'create' && (
+                    <span style={{ 
+                      backgroundColor: '#dcfce7', 
+                      color: '#16a34a', 
+                      padding: '2px 6px', 
+                      borderRadius: '4px',
+                      fontSize: '10px',
+                      fontWeight: '600',
+                    }}>NEW</span>
+                  )}
+                  {currentViewDiff.action === 'delete' && (
+                    <span style={{ 
+                      backgroundColor: '#fee2e2', 
+                      color: '#dc2626', 
+                      padding: '2px 6px', 
+                      borderRadius: '4px',
+                      fontSize: '10px',
+                      fontWeight: '600',
+                    }}>DELETE</span>
+                  )}
+                  {currentViewDiff.action === 'modify' && (
+                    <span style={{ 
+                      backgroundColor: '#fef3c7', 
+                      color: '#ca8a04', 
+                      padding: '2px 6px', 
+                      borderRadius: '4px',
+                      fontSize: '10px',
+                      fontWeight: '600',
+                    }}>MODIFY</span>
+                  )}
+                  📄 {currentViewDiff.file.split(/[/\\]/).pop() || currentViewDiff.file}
+                </div>
+                <div
                   style={{
-                    margin: 0,
-                    padding: '8px',
-                    backgroundColor: '#1f2d1f',
-                    borderRadius: '4px',
-                    whiteSpace: 'pre-wrap',
-                    wordBreak: 'break-word',
-                    color: '#7ee787',
-                    maxHeight: '80px',
+                    padding: '14px',
+                    maxHeight: '200px',
                     overflow: 'auto',
+                    fontFamily: 'SF Mono, Monaco, Consolas, monospace',
+                    fontSize: '11px',
+                    lineHeight: '1.5',
                   }}
                 >
-                  {diff.after.substring(0, 500)}{diff.after.length > 500 ? '...' : ''}
-                </pre>
-              </div>
-            </div>
+                  {/* Show before/after for modify, only after for create, only before for delete */}
+                  {currentViewDiff.action !== 'create' && currentViewDiff.before && (
+                    <div style={{ marginBottom: currentViewDiff.action !== 'delete' ? '10px' : '0' }}>
+                      <div style={{ color: '#dc2626', marginBottom: '4px', fontWeight: '500' }}>
+                        {currentViewDiff.action === 'delete' ? '− File to be deleted:' : '− Before:'}
+                      </div>
+                      <pre
+                        style={{
+                          margin: 0,
+                          padding: '10px',
+                          backgroundColor: '#fef2f2',
+                          borderRadius: '6px',
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                          color: '#b91c1c',
+                          maxHeight: '80px',
+                          overflow: 'auto',
+                          border: '1px solid #fecaca',
+                        }}
+                      >
+                        {currentViewDiff.before.substring(0, 500)}{currentViewDiff.before.length > 500 ? '...' : ''}
+                      </pre>
+                    </div>
+                  )}
+                  {currentViewDiff.action !== 'delete' && currentViewDiff.after && (
+                    <div>
+                      <div style={{ color: '#16a34a', marginBottom: '4px', fontWeight: '500' }}>
+                        {currentViewDiff.action === 'create' ? '+ New file:' : '+ After:'}
+                      </div>
+                      <pre
+                        style={{
+                          margin: 0,
+                          padding: '10px',
+                          backgroundColor: '#f0fdf4',
+                          borderRadius: '6px',
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-word',
+                          color: '#15803d',
+                          maxHeight: '80px',
+                          overflow: 'auto',
+                          border: '1px solid #bbf7d0',
+                        }}
+                      >
+                        {currentViewDiff.after.substring(0, 500)}{currentViewDiff.after.length > 500 ? '...' : ''}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              </>
+            )}
           </div>
         )}
       </div>
 
       {/* Action Buttons for Diff */}
-      {state === 'diff' && (
+      {state === 'diff' && allDiffs.length > 0 && (
         <div
           style={{
-            padding: '12px 16px',
-            borderTop: '1px solid #2d2d44',
+            padding: '14px 20px',
+            borderTop: '1px solid #e5e5e5',
             display: 'flex',
-            gap: '8px',
-            justifyContent: 'flex-end',
-            backgroundColor: '#16162a',
+            gap: '10px',
+            justifyContent: 'space-between',
+            alignItems: 'center',
           }}
         >
-          <button
-            onClick={onRejectDiff}
-            style={{
-              padding: '8px 16px',
-              border: '1px solid #ef4444',
-              borderRadius: '6px',
-              backgroundColor: 'transparent',
-              color: '#ef4444',
-              fontSize: '13px',
-              fontWeight: '500',
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-            }}
-          >
-            <span>✕</span> Reject
-          </button>
-          <button
-            onClick={onApplyDiff}
-            style={{
-              padding: '8px 16px',
-              border: 'none',
-              borderRadius: '6px',
-              backgroundColor: '#22c55e',
-              color: '#fff',
-              fontSize: '13px',
-              fontWeight: '500',
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '6px',
-            }}
-          >
-            <span>✓</span> Apply
-          </button>
+          {/* Left side - file count */}
+          <div style={{ fontSize: '12px', color: '#666' }}>
+            {allDiffs.length > 1 
+              ? `${selectedDiffIndex + 1} of ${allDiffs.length} files`
+              : '1 file'}
+          </div>
+          
+          {/* Right side - actions */}
+          <div style={{ display: 'flex', gap: '10px' }}>
+            {allDiffs.length > 1 ? (
+              <>
+                {/* Reject All */}
+                <button
+                  onClick={() => onRejectAllDiffs?.()}
+                  style={{
+                    padding: '8px 18px',
+                    border: '1px solid #e5e5e5',
+                    borderRadius: '8px',
+                    backgroundColor: '#fff',
+                    color: '#666',
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  Reject All
+                </button>
+                {/* Apply All */}
+                <button
+                  onClick={() => onApplyAllDiffs?.()}
+                  style={{
+                    padding: '8px 18px',
+                    border: 'none',
+                    borderRadius: '8px',
+                    backgroundColor: '#000',
+                    color: '#fff',
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  Apply All ({allDiffs.length})
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={() => onRejectDiff(currentViewDiff?.diffId)}
+                  style={{
+                    padding: '8px 18px',
+                    border: '1px solid #e5e5e5',
+                    borderRadius: '8px',
+                    backgroundColor: '#fff',
+                    color: '#666',
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  Reject
+                </button>
+                <button
+                  onClick={() => onApplyDiff(currentViewDiff?.diffId)}
+                  style={{
+                    padding: '8px 18px',
+                    border: 'none',
+                    borderRadius: '8px',
+                    backgroundColor: '#000',
+                    color: '#fff',
+                    fontSize: '13px',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                    fontFamily: 'inherit',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
+                >
+                  Apply
+                </button>
+              </>
+            )}
+          </div>
         </div>
       )}
 
-      {/* Input Area */}
+      {/* Input Area - Cursor-like design */}
       {state === 'prompt' && (
-        <form
-          onSubmit={handleSubmit}
+        <div
           style={{
-            padding: '12px',
-            borderTop: '1px solid #2d2d44',
-            backgroundColor: '#16162a',
+            padding: '16px 20px',
+            borderTop: '1px solid #e5e5e5',
           }}
         >
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <input
-              type="text"
+          <div
+            style={{
+              backgroundColor: '#f5f5f5',
+              borderRadius: '12px',
+              border: '1px solid #e5e5e5',
+              overflow: 'hidden',
+            }}
+          >
+            {/* Textarea */}
+            <textarea
+              ref={textareaRef}
               value={inputValue}
-              onInput={(e) => setInputValue((e.target as HTMLInputElement).value)}
+              onInput={(e) => setInputValue((e.target as HTMLTextAreaElement).value)}
               onKeyDown={handleKeyDown}
               autoFocus
-              placeholder="What would you like to change?"
+              placeholder="Plan, @ for context, / for commands"
+              rows={1}
               style={{
-                flex: 1,
-                padding: '10px 12px',
-                border: '1px solid #3d3d5c',
-                borderRadius: '8px',
-                backgroundColor: '#1a1a2e',
-                color: '#fff',
-                fontSize: '13px',
+                width: '100%',
+                padding: '14px 16px',
+                border: 'none',
+                backgroundColor: 'transparent',
+                color: '#000',
+                fontSize: '14px',
                 outline: 'none',
                 fontFamily: 'inherit',
+                resize: 'none',
+                lineHeight: '1.5',
+                minHeight: '24px',
+                maxHeight: '120px',
               }}
             />
-            <button
-              type="submit"
-              disabled={!inputValue.trim()}
+            
+            {/* Action bar */}
+            <div
               style={{
-                padding: '10px 16px',
-                border: 'none',
-                borderRadius: '8px',
-                backgroundColor: inputValue.trim() ? '#3b82f6' : '#2d2d44',
-                color: inputValue.trim() ? '#fff' : '#6b7280',
-                fontSize: '13px',
-                fontWeight: '500',
-                cursor: inputValue.trim() ? 'pointer' : 'not-allowed',
-                fontFamily: 'inherit',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: '8px 12px',
+                borderTop: '1px solid #e5e5e5',
+                backgroundColor: '#fafafa',
               }}
             >
-              Send
-            </button>
+              {/* Left actions */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                {/* Cursor/Element Selector */}
+                <button
+                  onClick={onSelectElement}
+                  style={{
+                    background: isSelectingElement ? '#000' : 'transparent',
+                    border: 'none',
+                    color: isSelectingElement ? '#fff' : '#666',
+                    cursor: 'pointer',
+                    padding: '6px 8px',
+                    borderRadius: '6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontSize: '12px',
+                    fontWeight: '500',
+                    transition: 'all 0.15s ease',
+                  }}
+                  title="Select an element on page"
+                >
+                  <CursorIcon />
+                  <span>Cursor</span>
+                </button>
+
+                {/* Terminal/Console */}
+                <button
+                  onClick={onTagConsole}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#666',
+                    cursor: 'pointer',
+                    padding: '6px 8px',
+                    borderRadius: '6px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    fontSize: '12px',
+                    fontWeight: '500',
+                    transition: 'all 0.15s ease',
+                  }}
+                  title="Tag console logs"
+                >
+                  <TerminalIcon />
+                  <span>Console</span>
+                </button>
+
+                {/* Dropdown for model/tool - compact */}
+                <div style={{ position: 'relative', marginLeft: '4px', maxWidth: '120px' }}>
+                  <select
+                    value={selectedModel || ''}
+                    onChange={(e) => onModelChange?.((e.target as HTMLSelectElement).value)}
+                    disabled={!models || models.length === 0}
+                    style={{
+                      appearance: 'none',
+                      background: 'transparent',
+                      border: 'none',
+                      color: '#999',
+                      fontSize: '12px',
+                      fontFamily: 'inherit',
+                      cursor: 'pointer',
+                      padding: '4px 16px 4px 4px',
+                      maxWidth: '100%',
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
+                      backgroundRepeat: 'no-repeat',
+                      backgroundPosition: 'right 0 center',
+                    }}
+                  >
+                    {models?.map((model) => (
+                      <option key={model.id} value={model.id}>
+                        {model.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              {/* Right side - send button */}
+              <button
+                type="button"
+                onClick={handleSubmit}
+                disabled={!inputValue.trim()}
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  padding: '0',
+                  border: 'none',
+                  borderRadius: '8px',
+                  backgroundColor: inputValue.trim() ? '#000' : '#e5e5e5',
+                  color: inputValue.trim() ? '#fff' : '#999',
+                  cursor: inputValue.trim() ? 'pointer' : 'not-allowed',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.15s ease',
+                }}
+                title="Send message"
+              >
+                <SendIcon />
+              </button>
+            </div>
           </div>
-        </form>
+        </div>
       )}
 
       {/* Applying State */}
       {state === 'applying' && (
         <div
           style={{
-            padding: '16px',
-            borderTop: '1px solid #2d2d44',
+            padding: '20px',
+            borderTop: '1px solid #e5e5e5',
             textAlign: 'center',
-            color: '#60a5fa',
+            color: '#666',
             fontSize: '13px',
           }}
         >
           <div
             style={{
               display: 'inline-block',
-              width: '16px',
-              height: '16px',
-              border: '2px solid #3b82f6',
+              width: '14px',
+              height: '14px',
+              border: '2px solid #000',
               borderTopColor: 'transparent',
               borderRadius: '50%',
               animation: 'spin 1s linear infinite',
-              marginRight: '8px',
+              marginRight: '10px',
             }}
           />
           Applying changes...
         </div>
       )}
+
+      {/* CSS Animation */}
+      <style>{`
+        @keyframes spin {
+          from { transform: rotate(0deg); }
+          to { transform: rotate(360deg); }
+        }
+      `}</style>
     </div>
   );
 };

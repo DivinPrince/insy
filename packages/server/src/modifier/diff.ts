@@ -1,7 +1,16 @@
 import { createPatch, diffLines } from 'diff';
-import type { DiffResult, DiffHunk, DiffChange } from '@pixelcode/shared';
+import { readFile } from 'fs/promises';
+import { existsSync } from 'fs';
+import type { DiffResult, DiffHunk, DiffChange, CodeChange } from '@pixelcode/shared';
+
+export interface MultiDiffResult {
+  results: DiffResult[];
+  summary?: string;
+}
 
 export class DiffGenerator {
+  constructor(private projectRoot?: string) {}
+
   generate(
     filePath: string,
     originalCode: string,
@@ -29,6 +38,72 @@ export class DiffGenerator {
       unifiedDiff,
       hunks,
     };
+  }
+
+  /**
+   * Generate diffs for multiple file changes
+   */
+  async generateMultiple(changes: CodeChange[], summary?: string): Promise<MultiDiffResult> {
+    const results: DiffResult[] = [];
+
+    for (const change of changes) {
+      let originalCode = '';
+      let modifiedCode = change.content;
+
+      switch (change.action) {
+        case 'create':
+          // New file - original is empty
+          originalCode = '';
+          break;
+
+        case 'modify':
+          // Existing file - read current content
+          try {
+            const fullPath = this.resolvePath(change.filePath);
+            console.log(`[DiffGenerator] Checking file: ${fullPath}`);
+            if (existsSync(fullPath)) {
+              originalCode = await readFile(fullPath, 'utf-8');
+              console.log(`[DiffGenerator] Read ${originalCode.length} bytes from ${fullPath}`);
+            } else {
+              console.warn(`[DiffGenerator] File not found for modify: ${fullPath} (original path: ${change.filePath})`);
+              originalCode = '';
+            }
+          } catch (error) {
+            console.error(`[DiffGenerator] Error reading file ${change.filePath}:`, error);
+            originalCode = '';
+          }
+          break;
+
+        case 'delete':
+          // Delete file - modified is empty
+          try {
+            const fullPath = this.resolvePath(change.filePath);
+            if (existsSync(fullPath)) {
+              originalCode = await readFile(fullPath, 'utf-8');
+            }
+          } catch (error) {
+            console.error(`[DiffGenerator] Error reading file ${change.filePath}:`, error);
+          }
+          modifiedCode = '';
+          break;
+      }
+
+      const result = this.generate(change.filePath, originalCode, modifiedCode);
+      results.push(result);
+    }
+
+    return { results, summary };
+  }
+
+  private resolvePath(filePath: string): string {
+    // Check for absolute paths (Windows with backslash, Windows with forward slash, or Unix)
+    if (filePath.startsWith('/') || filePath.match(/^[a-zA-Z]:[\\/]/)) {
+      return filePath;
+    }
+    if (this.projectRoot) {
+      return `${this.projectRoot}/${filePath}`;
+    }
+    return filePath;
   }
 
   private parseHunks(unifiedDiff: string): DiffHunk[] {

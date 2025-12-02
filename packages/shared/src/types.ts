@@ -120,6 +120,25 @@ export interface CodeModification {
   explanation?: string;
 }
 
+// ============================================================================
+// Structured Code Changes (XML-based AI response format)
+// ============================================================================
+
+export type CodeChangeAction = 'create' | 'modify' | 'delete';
+
+export interface CodeChange {
+  filePath: string;
+  action: CodeChangeAction;
+  language: string;
+  content: string;          // Full file content (empty for delete)
+  description?: string;     // Optional description of this specific change
+}
+
+export interface StructuredCodeResponse {
+  changes: CodeChange[];
+  summary?: string;         // Overall summary of all changes
+}
+
 export interface DiffChange {
   type: 'add' | 'remove' | 'context';
   line: string;
@@ -229,6 +248,21 @@ export interface DiffGeneratedPayload {
     before: string;
     after: string;
   };
+}
+
+export interface MultiDiffGeneratedPayload {
+  elementId: string;
+  summary?: string;
+  diffs: Array<{
+    diffId: string;
+    file: string;
+    action: CodeChangeAction;
+    diff: string;
+    preview: {
+      before: string;
+      after: string;
+    };
+  }>;
 }
 
 export interface DiffAppliedPayload {

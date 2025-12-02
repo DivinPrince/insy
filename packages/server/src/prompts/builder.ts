@@ -30,22 +30,67 @@ ${sourceCode}
 
 ## Your Task
 Please modify the code to implement the user's request. Important guidelines:
-1. Return ONLY the complete modified code in a code block
-2. Preserve the existing code structure and formatting style
-3. Only change what's necessary to fulfill the request
-4. Keep all imports, exports, and other components unchanged
-5. Maintain the same indentation style
+1. Preserve the existing code structure and formatting style
+2. Only change what's necessary to fulfill the request
+3. Keep all imports, exports, and other components unchanged
+4. Maintain the same indentation style
 
-Return your response as:
-\`\`\`${language}
-// modified code here
-\`\`\``;
+## Design Guidelines
+When making visual/styling changes, keep in mind:
+- Users prefer clean, minimal, and elegant designs
+- Avoid complex gradients, excessive shadows, or overly decorative elements
+- Prioritize simplicity, readability, and whitespace
+- Use subtle colors and consistent spacing
+- Less is more - aim for a refined, professional look
+
+## Response Format
+You MUST return your response in the following XML format. This is critical for the system to parse your changes correctly.
+
+<file_changes>
+  <summary>Brief description of what changes were made</summary>
+  <file path="${sourceFilePath}" action="modify" language="${language}">
+    <description>What was changed in this file</description>
+    <content><![CDATA[
+// Your complete modified code here
+// Include the ENTIRE file content, not just the changed parts
+]]></content>
+  </file>
+</file_changes>
+
+### Format Rules:
+1. Always wrap file content in <![CDATA[...]]> to handle special characters
+2. The "action" attribute must be one of: "create", "modify", "delete"
+3. For "modify" actions, include the complete file content
+4. For "delete" actions, leave <content> empty
+5. You can include multiple <file> elements if changes span multiple files
+6. Always include the full file path in the "path" attribute
+
+Example for multiple files:
+<file_changes>
+  <summary>Added a new component and updated the main file</summary>
+  <file path="/src/components/Button.tsx" action="create" language="tsx">
+    <description>New Button component</description>
+    <content><![CDATA[
+export function Button() { return <button>Click</button>; }
+]]></content>
+  </file>
+  <file path="/src/App.tsx" action="modify" language="tsx">
+    <description>Import and use the new Button component</description>
+    <content><![CDATA[
+import { Button } from './components/Button';
+// ... rest of file
+]]></content>
+  </file>
+</file_changes>`;
 }
 
 export function parseOpenCodeResponse(response: string): {
   code: string;
   language: string;
 } {
+  // This is the legacy parser - kept for backward compatibility
+  // Use parseStructuredResponse from ./parser.ts for the new XML format
+  
   // Extract code block from response
   const codeBlockRegex = /```(\w+)?\s*\n([\s\S]+?)```/;
   const match = response.match(codeBlockRegex);

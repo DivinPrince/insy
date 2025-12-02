@@ -4,11 +4,13 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>PixelCode Example - React + Vite</title>
-    
+
     <!-- PixelCode Script (Development Only) -->
     <style>
       body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        font-family:
+          -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell,
+          sans-serif;
         background: #f5f5f5;
         margin: 0;
         padding: 0;
@@ -24,10 +26,10 @@
         position: absolute;
         width: 100%;
         height: 100%;
-        background-image: 
-          radial-gradient(circle at 20% 50%, rgba(59, 130, 246, 0.1) 0%, transparent 50%),
-          radial-gradient(circle at 80% 80%, rgba(59, 130, 246, 0.1) 0%, transparent 50%),
-          radial-gradient(circle at 40% 20%, rgba(59, 130, 246, 0.08) 0%, transparent 50%);
+        background-image:
+          radial-gradient(circle at 20% 50%, rgba(34, 197, 94, 0.1) 0%, transparent 50%),
+          radial-gradient(circle at 80% 80%, rgba(34, 197, 94, 0.1) 0%, transparent 50%),
+          radial-gradient(circle at 40% 20%, rgba(34, 197, 94, 0.08) 0%, transparent 50%);
         background-size: 100% 100%;
         z-index: 0;
         transition: opacity 0.3s ease;
@@ -37,19 +39,31 @@
         position: absolute;
         width: 100%;
         height: 100%;
-        background-image: 
-          repeating-linear-gradient(45deg, transparent, transparent 60px, rgba(59, 130, 246, 0.02) 60px, rgba(59, 130, 246, 0.02) 61px),
-          repeating-linear-gradient(-45deg, transparent, transparent 60px, rgba(59, 130, 246, 0.02) 60px, rgba(59, 130, 246, 0.02) 61px);
+        background-image:
+          repeating-linear-gradient(
+            45deg,
+            transparent,
+            transparent 60px,
+            rgba(34, 197, 94, 0.02) 60px,
+            rgba(34, 197, 94, 0.02) 61px
+          ),
+          repeating-linear-gradient(
+            -45deg,
+            transparent,
+            transparent 60px,
+            rgba(34, 197, 94, 0.02) 60px,
+            rgba(34, 197, 94, 0.02) 61px
+          );
         z-index: 0;
       }
       body.dark-mode {
         background: #0f0f0f;
       }
       body.dark-mode::before {
-        background-image: 
-          radial-gradient(circle at 20% 50%, rgba(59, 130, 246, 0.08) 0%, transparent 50%),
-          radial-gradient(circle at 80% 80%, rgba(59, 130, 246, 0.08) 0%, transparent 50%),
-          radial-gradient(circle at 40% 20%, rgba(59, 130, 246, 0.05) 0%, transparent 50%);
+        background-image:
+          radial-gradient(circle at 20% 50%, rgba(34, 197, 94, 0.08) 0%, transparent 50%),
+          radial-gradient(circle at 80% 80%, rgba(34, 197, 94, 0.08) 0%, transparent 50%),
+          radial-gradient(circle at 40% 20%, rgba(34, 197, 94, 0.05) 0%, transparent 50%);
       }
       .dark-mode-toggle {
         position: absolute;
@@ -111,7 +125,7 @@
       }
       .image-side {
         flex: 1;
-        background: #3b82f6;
+        background: #22c55e;
         display: flex;
         align-items: center;
         justify-content: center;
@@ -124,10 +138,10 @@
         position: absolute;
         width: 200%;
         height: 200%;
-        background-image: 
-          radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.1) 0%, transparent 30%),
-          radial-gradient(circle at 80% 80%, rgba(255, 255, 255, 0.1) 0%, transparent 30%),
-          radial-gradient(circle at 40% 60%, rgba(255, 255, 255, 0.08) 0%, transparent 25%);
+        background-image:
+          radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.15) 0%, transparent 30%),
+          radial-gradient(circle at 80% 80%, rgba(255, 255, 255, 0.15) 0%, transparent 30%),
+          radial-gradient(circle at 40% 60%, rgba(255, 255, 255, 0.12) 0%, transparent 25%);
         animation: float 20s ease-in-out infinite;
       }
       .image-side::after {
@@ -135,12 +149,25 @@
         position: absolute;
         width: 100%;
         height: 100%;
-        background-image: 
-          repeating-linear-gradient(90deg, transparent, transparent 40px, rgba(255, 255, 255, 0.03) 40px, rgba(255, 255, 255, 0.03) 41px),
-          repeating-linear-gradient(0deg, transparent, transparent 40px, rgba(255, 255, 255, 0.03) 40px, rgba(255, 255, 255, 0.03) 41px);
+        background-image:
+          repeating-linear-gradient(
+            90deg,
+            transparent,
+            transparent 40px,
+            rgba(255, 255, 255, 0.08) 40px,
+            rgba(255, 255, 255, 0.08) 41px
+          ),
+          repeating-linear-gradient(
+            0deg,
+            transparent,
+            transparent 40px,
+            rgba(255, 255, 255, 0.08) 40px,
+            rgba(255, 255, 255, 0.08) 41px
+          );
       }
       @keyframes float {
-        0%, 100% {
+        0%,
+        100% {
           transform: translate(0, 0) rotate(0deg);
         }
         50% {
@@ -180,7 +207,7 @@
         width: 50px;
         height: 50px;
         margin: 0 0 24px 0;
-        background: #3b82f6;
+        background: #22c55e;
         border-radius: 10px;
         display: flex;
         align-items: center;
@@ -211,17 +238,33 @@
       }
       .form-group {
         margin-bottom: 20px;
+        position: relative;
       }
       label {
-        display: block;
-        margin-bottom: 8px;
-        color: #333;
-        font-weight: 500;
-        font-size: 14px;
-        transition: color 0.3s ease;
+        position: absolute;
+        left: 14px;
+        top: 50%;
+        transform: translateY(-50%);
+        color: #999;
+        font-weight: 400;
+        font-size: 15px;
+        transition: all 0.2s ease;
+        pointer-events: none;
+        background: white;
+        padding: 0 4px;
       }
       body.dark-mode label {
-        color: #c4c4c4;
+        background: #1a1a1a;
+        color: #888;
+      }
+      label.active {
+        top: 0;
+        font-size: 12px;
+        color: #22c55e;
+        font-weight: 500;
+      }
+      body.dark-mode label.active {
+        color: #22c55e;
       }
       input {
         width: 100%;
@@ -239,22 +282,19 @@
         border-color: #2a2a2a;
         color: #f5f5f5;
       }
-      body.dark-mode input::placeholder {
-        color: #666;
-      }
       input:focus {
         outline: none;
-        border-color: #3b82f6;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        border-color: #22c55e;
+        box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.1);
       }
       body.dark-mode input:focus {
-        border-color: #3b82f6;
-        box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.2);
+        border-color: #22c55e;
+        box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
       }
       button {
         width: 100%;
         padding: 13px;
-        background: #3b82f6;
+        background: #22c55e;
         color: white;
         border: none;
         border-radius: 8px;
@@ -265,20 +305,20 @@
         margin-top: 8px;
       }
       button:hover {
-        background: #2563eb;
+        background: #16a34a;
       }
       .forgot-password {
         text-align: center;
         margin-top: 20px;
       }
       .forgot-password a {
-        color: #3b82f6;
+        color: #22c55e;
         text-decoration: none;
         font-size: 14px;
         transition: color 0.2s;
       }
       .forgot-password a:hover {
-        color: #2563eb;
+        color: #16a34a;
       }
       @media (max-width: 768px) {
         .login-wrapper {
@@ -297,7 +337,14 @@
   <body>
     <div id="root"></div>
     <button class="dark-mode-toggle" onclick="toggleDarkMode()">
-      <svg class="sun-icon" fill="none" stroke="#fbbf24" stroke-width="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <svg
+        class="sun-icon"
+        fill="none"
+        stroke="#fbbf24"
+        stroke-width="2"
+        viewBox="0 0 24 24"
+        xmlns="http://www.w3.org/2000/svg"
+      >
         <circle cx="12" cy="12" r="5"></circle>
         <line x1="12" y1="1" x2="12" y2="3"></line>
         <line x1="12" y1="21" x2="12" y2="23"></line>
@@ -308,7 +355,14 @@
         <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
         <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
       </svg>
-      <svg class="moon-icon" fill="none" stroke="#1a1a1a" stroke-width="2" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+      <svg
+        class="moon-icon"
+        fill="none"
+        stroke="#1a1a1a"
+        stroke-width="2"
+        viewBox="0 0 24 24"
+        xmlns="http://www.w3.org/2000/svg"
+      >
         <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
       </svg>
     </button>
@@ -316,7 +370,14 @@
       <div class="image-side">
         <div class="image-content">
           <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" fill="white" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path
+              d="M13 2L3 14h8l-1 8 10-12h-8l1-8z"
+              fill="white"
+              stroke="white"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
           <h2>Welcome Back</h2>
           <p>Login to access your account</p>
@@ -325,19 +386,26 @@
       <div class="login-container">
         <div class="logo">
           <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M13 2L3 14h8l-1 8 10-12h-8l1-8z" fill="white" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <path
+              d="M13 2L3 14h8l-1 8 10-12h-8l1-8z"
+              fill="white"
+              stroke="white"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
           </svg>
         </div>
         <h1>Login</h1>
         <p class="subtitle">Enter your credentials to continue</p>
         <form>
           <div class="form-group">
+            <input type="email" id="email" name="email" required />
             <label for="email">Email</label>
-            <input type="email" id="email" name="email" placeholder="Enter your email" required />
           </div>
           <div class="form-group">
+            <input type="password" id="password" name="password" required />
             <label for="password">Password</label>
-            <input type="password" id="password" name="password" placeholder="Enter your password" required />
           </div>
           <button type="submit">Login</button>
           <div class="forgot-password">
@@ -351,10 +419,28 @@
         document.body.classList.toggle('dark-mode');
         localStorage.setItem('darkMode', document.body.classList.contains('dark-mode'));
       }
-      
+
       if (localStorage.getItem('darkMode') === 'true') {
         document.body.classList.add('dark-mode');
       }
+
+      document.querySelectorAll('.form-group input').forEach(input => {
+        const label = input.nextElementSibling;
+        
+        input.addEventListener('focus', () => {
+          label.classList.add('active');
+        });
+        
+        input.addEventListener('blur', () => {
+          if (input.value === '') {
+            label.classList.remove('active');
+          }
+        });
+        
+        if (input.value !== '') {
+          label.classList.add('active');
+        }
+      });
     </script>
     <script src="http://localhost:7777/client.js"></script>
   </body>

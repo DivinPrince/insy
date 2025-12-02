@@ -312,7 +312,41 @@ export class ElementSelector {
       }
     });
 
-    return elements;
+    // Filter out containers that have children in the selection
+    // Only include a container if the selection fully contains it
+    return this.filterContainers(elements, rect);
+  }
+
+  private filterContainers(elements: HTMLElement[], selectionRect: SelectionRect): HTMLElement[] {
+    const elementSet = new Set(elements);
+    
+    return elements.filter((element) => {
+      // Check if any of the element's children are also in the selection
+      const hasSelectedChildren = elements.some(
+        (other) => other !== element && element.contains(other)
+      );
+
+      if (!hasSelectedChildren) {
+        // No children selected, keep this element
+        return true;
+      }
+
+      // This element has children that are also selected
+      // Only include it if the selection fully contains this element
+      const elRect = element.getBoundingClientRect();
+      const isFullyContained = this.isRectFullyContained(elRect, selectionRect);
+      
+      return isFullyContained;
+    });
+  }
+
+  private isRectFullyContained(elementRect: DOMRect, selectionRect: SelectionRect): boolean {
+    return (
+      elementRect.left >= selectionRect.startX &&
+      elementRect.right <= selectionRect.endX &&
+      elementRect.top >= selectionRect.startY &&
+      elementRect.bottom <= selectionRect.endY
+    );
   }
 
   private rectsOverlap(rect1: SelectionRect, rect2: DOMRect): boolean {

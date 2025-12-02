@@ -16,6 +16,7 @@ import type {
   ToolsListPayload,
   ModelsListPayload,
   ToolConfigPayload,
+  CodeChangeAction,
 } from '@pixelcode/shared';
 
 import { PixelCodeWebSocketServer } from './websocket/server.js';
@@ -25,6 +26,7 @@ import { FileWriter } from './filesystem/writer.js';
 import { ConfigLoader } from './config/loader.js';
 import { AdapterRegistry } from './adapters/registry.js';
 import { buildOpenCodePrompt, parseOpenCodeResponse } from './prompts/builder.js';
+import { parseStructuredResponse, isStructuredResponse } from './prompts/parser.js';
 import type { CLIToolAdapter } from './adapters/interface.js';
 import { OpenCodeError } from './adapters/opencode-cli.js';
 
@@ -55,7 +57,7 @@ export class PixelCodeServer {
 
     this.configLoader = new ConfigLoader(projectRoot);
     this.sourceFinder = new SourceFileFinder(projectRoot);
-    this.diffGenerator = new DiffGenerator();
+    this.diffGenerator = new DiffGenerator(projectRoot);
     this.fileWriter = new FileWriter(projectRoot);
     this.adapterRegistry = new AdapterRegistry();
 
@@ -206,33 +208,102 @@ export class PixelCodeServer {
 
       // Stage 5: Parse response
       this.sendStatus(ws, 'generating_diff', 'Parsing AI response...', 70);
-      const { code: modifiedCode } = parseOpenCodeResponse(cliResponse);
-
-      // Stage 6: Generate diff
-      this.sendStatus(ws, 'generating_diff', 'Generating diff...', 85);
-      const diff = this.diffGenerator.generate(primarySource.path, sourceCode, modifiedCode);
-
-      // Store diff for approval
-      this.pendingDiffs.set(diff.id, diff);
-
-      // Send diff to client
-      this.wsServer?.send(ws, {
-        id: crypto.randomUUID(),
-        type: 'diff:generated',
-        payload: {
-          diffId: diff.id,
-          elementId: payload.elementId,
-          file: diff.file,
-          diff: diff.unifiedDiff,
-          preview: {
-            before: diff.originalCode,
-            after: diff.modifiedCode,
+      
+      // Check if response is in structured XML format
+      if (isStructuredResponse(cliResponse)) {
+        // New structured format - can handle multiple files
+        const structured = parseStructuredResponse(cliResponse);
+        
+        // Fix file paths for legacy responses that have 'unknown' path
+        for (const change of structured.changes) {
+          if (change.filePath === 'unknown') {
+            change.filePath = primarySource.path;
+          }
+        }
+        
+        // Stage 6: Generate diffs for all changes
+        this.sendStatus(ws, 'generating_diff', 'Generating diffs...', 85);
+        const multiDiff = await this.diffGenerator.generateMultiple(
+          structured.changes,
+          structured.summary
+        );
+        
+        // Store all diffs for approval
+        const diffPayloads: Array<{
+          diffId: string;
+          file: string;
+          action: CodeChangeAction;
+          diff: string;
+          preview: { before: string; after: string };
+        }> = [];
+        
+        for (const diff of multiDiff.results) {
+          this.pendingDiffs.set(diff.id, diff);
+          
+          // Find the corresponding action from changes
+          const change = structured.changes.find(c => c.filePath === diff.file);
+          
+          diffPayloads.push({
+            diffId: diff.id,
+            file: diff.file,
+            action: change?.action || 'modify',
+            diff: diff.unifiedDiff,
+            preview: {
+              before: diff.originalCode,
+              after: diff.modifiedCode,
+            },
+          });
+        }
+        
+        // Send multi-diff to client
+        console.log(`[Server] Sending multi_diff:generated with ${diffPayloads.length} diff(s)`);
+        for (const dp of diffPayloads) {
+          console.log(`[Server]   - ${dp.file} (${dp.action}): before=${dp.preview.before.length} bytes, after=${dp.preview.after.length} bytes`);
+        }
+        
+        this.wsServer?.send(ws, {
+          id: crypto.randomUUID(),
+          type: 'multi_diff:generated',
+          payload: {
+            elementId: payload.elementId,
+            summary: structured.summary,
+            diffs: diffPayloads,
           },
-        },
-        timestamp: Date.now(),
-      });
+          timestamp: Date.now(),
+        });
+        
+        // Note: Not sending status:complete here as the multi_diff:generated message 
+        // already transitions the client to diff review state
+      } else {
+        // Legacy single-file format
+        const { code: modifiedCode } = parseOpenCodeResponse(cliResponse);
 
-      this.sendStatus(ws, 'complete', 'Ready for review', 100);
+        // Stage 6: Generate diff
+        this.sendStatus(ws, 'generating_diff', 'Generating diff...', 85);
+        const diff = this.diffGenerator.generate(primarySource.path, sourceCode, modifiedCode);
+
+        // Store diff for approval
+        this.pendingDiffs.set(diff.id, diff);
+
+        // Send diff to client (legacy single-diff format)
+        this.wsServer?.send(ws, {
+          id: crypto.randomUUID(),
+          type: 'diff:generated',
+          payload: {
+            diffId: diff.id,
+            elementId: payload.elementId,
+            file: diff.file,
+            diff: diff.unifiedDiff,
+            preview: {
+              before: diff.originalCode,
+              after: diff.modifiedCode,
+            },
+          },
+          timestamp: Date.now(),
+        });
+
+        this.sendStatus(ws, 'complete', 'Ready for review', 100);
+      }
     } catch (error) {
       console.error('[Server] Error handling prompt:', error);
       

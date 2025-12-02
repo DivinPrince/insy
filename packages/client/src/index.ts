@@ -3,7 +3,6 @@ import { WebSocketClient } from './websocket/client.js';
 import { ElementSelector } from './core/selector.js';
 import { detectFramework, captureFrameworkContext } from './frameworks/detector.js';
 import { captureElement, extractSourceHints } from './core/capture.js';
-import { ChatPanel, type ChatState, type ChatMessage, type DiffPreview } from './ui/chat-panel.js';
 import { Toast } from './ui/toast.js';
 import { WidgetButton } from './ui/widget-button.js';
 import { WidgetPanel } from './ui/widget-panel.js';
@@ -14,13 +13,33 @@ import type {
   ElementInfo,
   StatusUpdatePayload,
   DiffGeneratedPayload,
+  MultiDiffGeneratedPayload,
   ErrorPayload,
   RecentEdit,
   ToolInfo,
   ModelInfo,
+  CodeChangeAction,
   ToolsListPayload,
   ModelsListPayload,
 } from '@pixelcode/shared';
+
+// Types for chat state
+type ChatState = 'prompt' | 'loading' | 'diff' | 'applying' | 'complete' | 'error';
+
+interface ChatMessage {
+  id: string;
+  type: 'user' | 'system' | 'error';
+  content: string;
+  timestamp: number;
+}
+
+interface DiffPreview {
+  file: string;
+  before: string;
+  after: string;
+  diffId: string;
+  action?: CodeChangeAction;
+}
 
 // Simple ID generator (crypto.randomUUID not available in browser without polyfill)
 function generateId(): string {
@@ -46,11 +65,13 @@ class PixelCode {
   // Chat panel state
   private chatState: ChatState = 'prompt';
   private chatMessages: ChatMessage[] = [];
-  private chatPosition = { x: 100, y: 100 };
   private currentDiff: DiffPreview | null = null;
+  private currentDiffs: DiffPreview[] = [];  // Multiple diffs support
+  private diffSummary: string = '';  // Summary of all changes
   private currentDiffFile: string = '';
   private statusMessage: string = '';
   private statusProgress: number = 0;
+  private selectedElementInfo: ElementInfo | null = null;
   
   // Tool & Model state
   private availableTools: ToolInfo[] = [];
@@ -145,6 +166,9 @@ class PixelCode {
         case 'diff:generated':
           this.handleDiffGenerated(message.payload as DiffGeneratedPayload);
           break;
+        case 'multi_diff:generated':
+          this.handleMultiDiffGenerated(message.payload as MultiDiffGeneratedPayload);
+          break;
         case 'diff:applied':
           this.handleDiffApplied();
           break;
@@ -171,7 +195,7 @@ class PixelCode {
 
   private activate(multiSelect: boolean = false): void {
     this.isActive = true;
-    this.widgetExpanded = false; // Close panel when activating
+    // Keep widget visible while selecting
     
     if (multiSelect) {
       this.selector.activate(
@@ -219,6 +243,7 @@ class PixelCode {
 
     // Generate unique ID for this element
     this.currentElementId = generateId();
+    this.selectedElementInfo = info;
 
     // Send to server
     this.ws.send(
@@ -228,26 +253,21 @@ class PixelCode {
       })
     );
 
-    // Reset chat state and show chat panel
+    // Reset chat state
     this.chatState = 'prompt';
     this.chatMessages = [];
     this.currentDiff = null;
     
-    // Position chat panel below the selected element
-    const rect = element.getBoundingClientRect();
-    this.chatPosition = {
-      x: rect.left,
-      y: rect.bottom + 10,
-    };
-    
-    // Request available tools when opening chat panel
+    // Request available tools
     this.requestTools();
-    
-    this.renderChatPanel();
 
-    // Deactivate selector but stay in active mode
+    // Deactivate selector
     this.selector.deactivate();
     this.isActive = false;
+
+    // Expand widget to show chat
+    this.widgetExpanded = true;
+    this.clearUI();
     this.renderWidget();
   }
 
@@ -286,49 +306,18 @@ class PixelCode {
     this.chatMessages = [];
     this.currentDiff = null;
     
-    // Position chat panel based on the first selected element
-    const firstElementRect = elements[0].element.getBoundingClientRect();
-    this.chatPosition = {
-      x: firstElementRect.left,
-      y: firstElementRect.bottom + 10,
-    };
-    
     // Request available tools when opening chat panel
     this.requestTools();
     
-    this.renderChatPanel();
+    // Expand widget to show chat
+    this.widgetExpanded = true;
+    this.renderWidget();
 
     // Deactivate selector but stay in active mode
     this.selector.deactivate();
     this.isActive = false;
-    this.renderWidget();
     
     this.showToast(`${elements.length} elements selected`, 'success');
-  }
-
-  private renderChatPanel(): void {
-    render(
-      <ChatPanel
-        position={this.chatPosition}
-        state={this.chatState}
-        messages={this.chatMessages}
-        diff={this.currentDiff || undefined}
-        statusMessage={this.statusMessage}
-        progress={this.statusProgress}
-        tools={this.availableTools}
-        selectedTool={this.selectedTool}
-        models={this.availableModels}
-        selectedModel={this.selectedModel}
-        onToolChange={(tool) => this.handleToolChange(tool)}
-        onModelChange={(model) => this.handleModelChange(model)}
-        onSubmitPrompt={(prompt) => this.handlePromptSubmit(prompt)}
-        onApplyDiff={() => this.handleDiffApprove(this.currentDiff?.diffId || '')}
-        onRejectDiff={() => this.handleDiffReject(this.currentDiff?.diffId || '')}
-        onClose={() => this.closeChatPanel()}
-        onRetry={() => this.handleRetry()}
-      />,
-      this.uiContainer
-    );
   }
 
   private handleRetry(): void {
@@ -336,7 +325,7 @@ class PixelCode {
     this.chatState = 'prompt';
     this.statusMessage = '';
     this.statusProgress = 0;
-    this.renderChatPanel();
+    this.renderWidget();
   }
 
   private closeChatPanel(): void {
@@ -344,7 +333,11 @@ class PixelCode {
     this.currentElementId = null;
     this.chatMessages = [];
     this.currentDiff = null;
+    this.currentDiffs = [];
+    this.diffSummary = '';
     this.chatState = 'prompt';
+    this.selectedElementInfo = null;
+    this.renderWidget();
   }
 
   private handlePromptSubmit(prompt: string): void {
@@ -362,7 +355,7 @@ class PixelCode {
     this.chatState = 'loading';
     this.statusMessage = 'Sending request...';
     this.statusProgress = 0;
-    this.renderChatPanel();
+    this.renderWidget();
 
     this.ws.send(
       this.createMessage('prompt:submit', {
@@ -385,7 +378,8 @@ class PixelCode {
       this.requestModels(this.selectedTool);
     }
     
-    this.renderChatPanel();
+    this.renderWidget();
+    this.renderWidget();
   }
 
   private handleModelsList(payload: ModelsListPayload): void {
@@ -396,7 +390,8 @@ class PixelCode {
       this.selectedModel = payload.models[0].id;
     }
     
-    this.renderChatPanel();
+    this.renderWidget();
+    this.renderWidget();
   }
 
   private requestTools(): void {
@@ -412,12 +407,12 @@ class PixelCode {
     this.selectedModel = ''; // Reset model when tool changes
     this.availableModels = []; // Clear models
     this.requestModels(toolIdentifier);
-    this.renderChatPanel();
+    this.renderWidget();
   }
 
   private handleModelChange(modelId: string): void {
     this.selectedModel = modelId;
-    this.renderChatPanel();
+    this.renderWidget();
   }
 
   private handleStatusUpdate(payload: StatusUpdatePayload): void {
@@ -429,7 +424,8 @@ class PixelCode {
     this.statusMessage = payload.message;
     this.statusProgress = payload.progress || 0;
     this.chatState = 'loading';
-    this.renderChatPanel();
+    this.renderWidget();
+    this.renderWidget();
   }
 
   private handleDiffGenerated(payload: DiffGeneratedPayload): void {
@@ -448,18 +444,56 @@ class PixelCode {
       after: payload.preview.after,
       diffId: payload.diffId,
     };
+    this.currentDiffs = [this.currentDiff];
     this.currentDiffFile = payload.file;
 
     // Update state to show diff
     this.chatState = 'diff';
-    this.renderChatPanel();
+    this.renderWidget();
+  }
+
+  private handleMultiDiffGenerated(payload: MultiDiffGeneratedPayload): void {
+    // Store summary
+    this.diffSummary = payload.summary || '';
+    
+    // Add system message with summary
+    const fileCount = payload.diffs.length;
+    const message = payload.summary 
+      ? `${payload.summary} (${fileCount} file${fileCount > 1 ? 's' : ''})`
+      : `Changes ready for ${fileCount} file${fileCount > 1 ? 's' : ''}`;
+    
+    this.chatMessages.push({
+      id: generateId(),
+      type: 'system',
+      content: message,
+      timestamp: Date.now(),
+    });
+
+    // Store all diffs for preview
+    this.currentDiffs = payload.diffs.map(d => ({
+      file: d.file,
+      before: d.preview.before,
+      after: d.preview.after,
+      diffId: d.diffId,
+      action: d.action,
+    }));
+    
+    // Set current diff to first one for compatibility
+    if (this.currentDiffs.length > 0) {
+      this.currentDiff = this.currentDiffs[0];
+      this.currentDiffFile = this.currentDiffs[0].file;
+    }
+
+    // Update state to show diff
+    this.chatState = 'diff';
+    this.renderWidget();
   }
 
   private handleDiffApprove(diffId: string): void {
     if (!diffId) return;
     
     this.chatState = 'applying';
-    this.renderChatPanel();
+    this.renderWidget();
 
     this.ws.send(
       this.createMessage('diff:approve', {
@@ -479,16 +513,64 @@ class PixelCode {
       })
     );
 
-    // Add message and reset to prompt state
+    // Remove the rejected diff from the list
+    this.currentDiffs = this.currentDiffs.filter(d => d.diffId !== diffId);
+    
+    if (this.currentDiffs.length > 0) {
+      // Still have diffs to review
+      this.currentDiff = this.currentDiffs[0];
+      this.renderWidget();
+    } else {
+      // All diffs rejected, reset to prompt state
+      this.chatMessages.push({
+        id: generateId(),
+        type: 'system',
+        content: 'Changes rejected. What else would you like to change?',
+        timestamp: Date.now(),
+      });
+      this.currentDiff = null;
+      this.chatState = 'prompt';
+      this.renderWidget();
+    }
+  }
+
+  private handleApplyAllDiffs(): void {
+    // Apply all pending diffs
+    for (const diff of this.currentDiffs) {
+      this.ws.send(
+        this.createMessage('diff:approve', {
+          diffId: diff.diffId,
+          action: 'apply',
+        })
+      );
+    }
+    
+    this.chatState = 'applying';
+    this.renderWidget();
+  }
+
+  private handleRejectAllDiffs(): void {
+    // Reject all pending diffs
+    for (const diff of this.currentDiffs) {
+      this.ws.send(
+        this.createMessage('diff:approve', {
+          diffId: diff.diffId,
+          action: 'reject',
+        })
+      );
+    }
+    
+    // Reset state
     this.chatMessages.push({
       id: generateId(),
       type: 'system',
-      content: 'Changes rejected. What else would you like to change?',
+      content: 'All changes rejected. What else would you like to change?',
       timestamp: Date.now(),
     });
+    this.currentDiffs = [];
     this.currentDiff = null;
     this.chatState = 'prompt';
-    this.renderChatPanel();
+    this.renderWidget();
   }
 
   private handleDiffApplied(): void {
@@ -502,7 +584,7 @@ class PixelCode {
     
     this.chatState = 'complete';
     this.currentDiff = null;
-    this.renderChatPanel();
+    this.renderWidget();
     
     this.showToast('Changes applied successfully!', 'success');
     
@@ -540,7 +622,7 @@ class PixelCode {
     this.currentDiff = null;
     this.statusMessage = payload.message;
     this.statusProgress = 0;
-    this.renderChatPanel();
+    this.renderWidget();
     
     // Show toast for visibility
     this.showToast(payload.message, 'error');
@@ -668,6 +750,23 @@ class PixelCode {
           onClose={() => this.toggleWidgetPanel()}
           recentEdits={this.recentEdits}
           position={this.widgetPosition}
+          // Chat functionality
+          onSubmitPrompt={(prompt) => this.handlePromptSubmit(prompt)}
+          messages={this.chatMessages}
+          isLoading={this.chatState === 'loading'}
+          statusMessage={this.statusMessage}
+          isSelectingElement={this.isActive}
+          models={this.availableModels}
+          selectedModel={this.selectedModel}
+          onModelChange={(model) => this.handleModelChange(model)}
+          selectedElementInfo={this.selectedElementInfo}
+          // Diff functionality
+          showDiff={this.chatState === 'diff'}
+          diffs={this.currentDiffs}
+          onApplyDiff={(diffId) => this.handleDiffApprove(diffId || this.currentDiff?.diffId || '')}
+          onRejectDiff={(diffId) => this.handleDiffReject(diffId || this.currentDiff?.diffId || '')}
+          onApplyAllDiffs={() => this.handleApplyAllDiffs()}
+          onRejectAllDiffs={() => this.handleRejectAllDiffs()}
         />,
         this.widgetContainer
       );
