@@ -116,58 +116,182 @@
       }
       .image-side {
         flex: 1;
-        background: #22c55e;
+        background: #fafafa;
         display: flex;
+        flex-direction: column;
         align-items: center;
         justify-content: center;
-        padding: 60px;
+        padding: 60px 40px;
         position: relative;
         overflow: hidden;
       }
-      .image-side::before {
-        content: '';
-        position: absolute;
-        width: 200%;
-        height: 200%;
-        background-image:
-          radial-gradient(circle, rgba(255, 255, 255, 0.12) 2px, transparent 2px);
-        background-size: 30px 30px;
+      body.dark-mode .image-side {
+        background: #161616;
       }
-      .image-side::after {
-        content: '';
-        position: absolute;
+      .progress-container {
         width: 100%;
-        height: 100%;
-        background-image:
-          repeating-linear-gradient(
-            45deg,
-            transparent,
-            transparent 25px,
-            rgba(255, 255, 255, 0.06) 25px,
-            rgba(255, 255, 255, 0.06) 50px
-          );
+        max-width: 320px;
       }
-      .image-content {
-        text-align: center;
-        color: #ffffff;
-        position: relative;
-        z-index: 1;
+      .progress-header {
+        margin-bottom: 32px;
       }
-      .image-content svg {
-        width: 120px;
-        height: 120px;
-        margin-bottom: 30px;
-      }
-      .image-content h2 {
-        font-size: 32px;
-        margin: 0 0 16px 0;
-        font-weight: 700;
-      }
-      .image-content p {
+      .progress-header h2 {
         font-size: 18px;
-        opacity: 0.9;
+        font-weight: 600;
+        color: #171717;
+        margin: 0 0 4px 0;
+      }
+      body.dark-mode .progress-header h2 {
+        color: #f5f5f5;
+      }
+      .progress-header p {
+        font-size: 13px;
+        color: #737373;
         margin: 0;
-        line-height: 1.6;
+      }
+      body.dark-mode .progress-header p {
+        color: #a3a3a3;
+      }
+      .progress-stats {
+        display: flex;
+        justify-content: space-between;
+        align-items: baseline;
+        margin-bottom: 12px;
+      }
+      .progress-label {
+        font-size: 13px;
+        color: #525252;
+        font-weight: 500;
+      }
+      body.dark-mode .progress-label {
+        color: #d4d4d4;
+      }
+      .progress-value {
+        font-size: 24px;
+        font-weight: 700;
+        color: #171717;
+      }
+      body.dark-mode .progress-value {
+        color: #f5f5f5;
+      }
+      .progress-bar-container {
+        height: 8px;
+        background: #e5e5e5;
+        border-radius: 4px;
+        overflow: hidden;
+        margin-bottom: 32px;
+      }
+      body.dark-mode .progress-bar-container {
+        background: #262626;
+      }
+      .progress-bar-fill {
+        height: 100%;
+        background: #22c55e;
+        border-radius: 4px;
+        width: 36%;
+        transition: width 1s ease;
+      }
+      body.dark-mode .progress-bar-fill {
+        background: #22c55e;
+      }
+      .graph-section {
+        margin-bottom: 32px;
+      }
+      .graph-title {
+        font-size: 14px;
+        font-weight: 600;
+        color: #171717;
+        margin-bottom: 16px;
+      }
+      body.dark-mode .graph-title {
+        color: #f5f5f5;
+      }
+      .bar-item {
+        margin-bottom: 16px;
+      }
+      .bar-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 6px;
+      }
+      .bar-label {
+        font-size: 13px;
+        color: #525252;
+        font-weight: 500;
+      }
+      body.dark-mode .bar-label {
+        color: #d4d4d4;
+      }
+      .bar-count {
+        font-size: 15px;
+        font-weight: 600;
+        color: #171717;
+      }
+      body.dark-mode .bar-count {
+        color: #f5f5f5;
+      }
+      .bar-track {
+        height: 6px;
+        background: #e5e5e5;
+        border-radius: 3px;
+        overflow: hidden;
+      }
+      body.dark-mode .bar-track {
+        background: #262626;
+      }
+      .bar-fill {
+        height: 100%;
+        border-radius: 3px;
+        transition: width 1s ease;
+      }
+      .bar-fill.entered {
+        background: #22c55e;
+        width: 36%;
+      }
+      .bar-fill.remaining {
+        background: #a3a3a3;
+        width: 64%;
+      }
+      body.dark-mode .bar-fill.remaining {
+        background: #525252;
+      }
+      .summary-card {
+        background: white;
+        border: 1px solid #e5e5e5;
+        border-radius: 8px;
+        padding: 16px;
+      }
+      body.dark-mode .summary-card {
+        background: #1c1c1c;
+        border-color: #262626;
+      }
+      .summary-row {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 8px 0;
+      }
+      .summary-row:not(:last-child) {
+        border-bottom: 1px solid #f5f5f5;
+      }
+      body.dark-mode .summary-row:not(:last-child) {
+        border-bottom: 1px solid #262626;
+      }
+      .summary-label {
+        font-size: 13px;
+        color: #737373;
+      }
+      body.dark-mode .summary-label {
+        color: #a3a3a3;
+      }
+      .summary-value {
+        font-size: 14px;
+        font-weight: 600;
+        color: #171717;
+      }
+      body.dark-mode .summary-value {
+        color: #f5f5f5;
       }
       .login-container {
         flex: 1;
@@ -300,7 +424,7 @@
         }
         .image-side {
           padding: 40px;
-          min-height: 200px;
+          min-height: 300px;
         }
         .login-container {
           padding: 40px;
@@ -342,19 +466,58 @@
     </button>
     <div class="login-wrapper">
       <div class="image-side">
-        <div class="image-content">
-          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path
-              d="M13 2L3 14h8l-1 8 10-12h-8l1-8z"
-              fill="white"
-              stroke="white"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-            />
-          </svg>
-          <h2>PixelCode</h2>
-          <p>A modern development platform for building beautiful applications with speed and precision</p>
+        <div class="progress-container">
+          <div class="progress-header">
+            <h2>Grading Progress</h2>
+            <p>9 of 25 marks entered</p>
+          </div>
+
+          <div class="progress-stats">
+            <span class="progress-label">Overall Progress</span>
+            <span class="progress-value">36%</span>
+          </div>
+          <div class="progress-bar-container">
+            <div class="progress-bar-fill"></div>
+          </div>
+
+          <div class="graph-section">
+            <div class="graph-title">Breakdown</div>
+            
+            <div class="bar-item">
+              <div class="bar-header">
+                <span class="bar-label">Marks Entered</span>
+                <span class="bar-count">9</span>
+              </div>
+              <div class="bar-track">
+                <div class="bar-fill entered"></div>
+              </div>
+            </div>
+
+            <div class="bar-item">
+              <div class="bar-header">
+                <span class="bar-label">Remaining to Enter</span>
+                <span class="bar-count">16</span>
+              </div>
+              <div class="bar-track">
+                <div class="bar-fill remaining"></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="summary-card">
+            <div class="summary-row">
+              <span class="summary-label">Total Marks</span>
+              <span class="summary-value">25</span>
+            </div>
+            <div class="summary-row">
+              <span class="summary-label">Completed</span>
+              <span class="summary-value">9 (36%)</span>
+            </div>
+            <div class="summary-row">
+              <span class="summary-label">Pending</span>
+              <span class="summary-value">16 (64%)</span>
+            </div>
+          </div>
         </div>
       </div>
       <div class="login-container">

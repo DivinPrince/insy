@@ -70,7 +70,23 @@ export class WebSocketClient {
       return;
     }
 
-    this.ws.send(JSON.stringify(message));
+    try {
+      this.ws.send(JSON.stringify(message));
+    } catch (error) {
+      console.error('[PixelCode] Failed to serialize message:', error);
+      // Attempt to send a simplified version of the message
+      try {
+        const simplified = {
+          id: message.id,
+          type: message.type,
+          payload: { error: 'Failed to serialize original payload' },
+          timestamp: message.timestamp,
+        };
+        this.ws.send(JSON.stringify(simplified));
+      } catch (innerError) {
+        console.error('[PixelCode] Failed to send even simplified message:', innerError);
+      }
+    }
   }
 
   on(handler: MessageHandler): void {

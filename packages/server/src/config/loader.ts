@@ -4,6 +4,10 @@ import path from 'path';
 export interface Config {
   version?: string;
   tool?: string; // 'opencode', 'claude', etc.
+  project?: {
+    path?: string;  // Absolute path to the project root
+    name?: string;  // Display name for the project
+  };
   server?: {
     port?: number;
     host?: string;

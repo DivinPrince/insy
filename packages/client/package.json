@@ -14,9 +14,9 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "bippy": "^0.5.22",
     "html2canvas": "^1.4.1",
-    "preact": "^10.19.3",
-    "react-grab": "^0.0.54"
+    "preact": "^10.19.3"
   },
   "devDependencies": {
     "@pixelcode/shared": "workspace:*",

@@ -180,6 +180,7 @@ export interface ElementSelectPayload {
   framework?: Framework;
   frameworkContext?: FrameworkContext;
   sourceHints?: SourceHints;
+  projectPath?: string;   // Project root path for this element
 }
 
 // Conversation message for chat history
@@ -202,7 +203,9 @@ export interface PromptSubmitPayload {
   mode?: 'preview' | 'auto-apply';
   tool?: string;          // User-selected tool
   model?: string;         // User-selected model
+  sessionId?: string;     // Unique session ID per chat conversation
   conversationHistory?: ConversationMessage[];  // Full conversation history
+  projectPath?: string;   // Project root path for this request
 }
 
 export interface DiffApprovalPayload {

@@ -26,6 +26,29 @@ import type {
   ConversationMessage,
 } from '@pixelcode/shared';
 
+// Injected config from server (populated when client.js is served)
+interface PixelCodeConfig {
+  projectPath: string;
+  host: string;
+  port: number;
+  projectName?: string;
+}
+
+declare global {
+  interface Window {
+    __PIXELCODE_CONFIG__?: PixelCodeConfig;
+  }
+}
+
+// Get config from injected global or use defaults
+function getConfig(): PixelCodeConfig {
+  return window.__PIXELCODE_CONFIG__ || {
+    projectPath: '',
+    host: 'localhost',
+    port: 7777,
+  };
+}
+
 // Types for chat state
 type ChatState = 'prompt' | 'loading' | 'diff' | 'applying' | 'complete' | 'error';
 
@@ -58,6 +81,7 @@ function generateId(): string {
 }
 
 class PixelCode {
+  private config: PixelCodeConfig;
   private ws: WebSocketClient;
   private selector: ElementSelector;
   private isActive = false;
@@ -85,6 +109,9 @@ class PixelCode {
   private selectedElementInfo: ElementInfo | null = null;
   private selectedElementContext: FrameworkContext | null = null;
   
+  // Session ID for opencode - unique per chat conversation
+  private chatSessionId: string = generateId();
+  
   // Tool & Model state
   private availableTools: ToolInfo[] = [];
   private selectedTool: string = '';
@@ -92,6 +119,10 @@ class PixelCode {
   private selectedModel: string = '';
 
   constructor() {
+    // Load config from injected global
+    this.config = getConfig();
+    console.log('[PixelCode] Config loaded:', this.config);
+    
     // Load preferences
     const prefs = PreferencesStore.getWidgetPreferences();
     this.widgetPosition = prefs.position;
@@ -129,7 +160,7 @@ class PixelCode {
     this.widgetShadowRoot.appendChild(this.createBaseStyles());
     this.widgetShadowRoot.appendChild(this.widgetContainer);
 
-    // Initialize WebSocket
+    // Initialize WebSocket using config
     const wsUrl = this.getWebSocketUrl();
     this.ws = new WebSocketClient(wsUrl);
     
@@ -147,8 +178,7 @@ class PixelCode {
   }
 
   private getWebSocketUrl(): string {
-    const host = 'localhost';
-    const port = 7777;
+    const { host, port } = this.config;
     return `ws://${host}:${port}`;
   }
 
@@ -267,11 +297,12 @@ class PixelCode {
     this.selectedElementInfo = info;
     this.selectedElementContext = frameworkContext || null;
 
-    // Send to server
+    // Send to server with projectPath
     this.ws.send(
       this.createMessage('element:select', {
         ...context,
         elementId: this.currentElementId,
+        projectPath: this.config.projectPath,
       })
     );
     
@@ -315,11 +346,12 @@ class PixelCode {
     // Generate unique ID for this multi-select operation
     this.currentElementId = generateId();
 
-    // Send all elements to server
+    // Send all elements to server with projectPath
     this.ws.send(
       this.createMessage('elements:select', {
         elements: contexts,
         elementId: this.currentElementId,
+        projectPath: this.config.projectPath,
       })
     );
 
@@ -374,6 +406,8 @@ class PixelCode {
     this.selectedElementContext = null;
     this.statusMessage = '';
     this.statusProgress = 0;
+    // Generate a new session ID for the new chat
+    this.chatSessionId = generateId();
     this.renderWidget();
   }
 
@@ -438,7 +472,9 @@ class PixelCode {
         mode: 'preview',
         tool: this.selectedTool || undefined,
         model: this.selectedModel || undefined,
+        sessionId: this.chatSessionId,
         conversationHistory,
+        projectPath: this.config.projectPath,
       })
     );
   }

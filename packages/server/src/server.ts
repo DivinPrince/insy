@@ -25,7 +25,7 @@ import { DiffGenerator } from './modifier/diff.js';
 import { FileWriter } from './filesystem/writer.js';
 import { ConfigLoader } from './config/loader.js';
 import { AdapterRegistry } from './adapters/registry.js';
-import { buildOpenCodePrompt, parseOpenCodeResponse } from './prompts/builder.js';
+import { buildContextOnlyPrompt, buildOpenCodePrompt, parseOpenCodeResponse } from './prompts/builder.js';
 import { parseStructuredResponse, isStructuredResponse } from './prompts/parser.js';
 import type { CLIToolAdapter } from './adapters/interface.js';
 import { OpenCodeError } from './adapters/opencode-cli.js';
@@ -43,25 +43,45 @@ export class PixelCodeServer {
   private app: Hono;
   private wsServer?: PixelCodeWebSocketServer;
   private configLoader: ConfigLoader;
-  private sourceFinder: SourceFileFinder;
-  private diffGenerator: DiffGenerator;
-  private fileWriter: FileWriter;
+  private defaultProjectRoot: string;
   private adapterRegistry: AdapterRegistry;
   private currentAdapter?: CLIToolAdapter;
-  private elementContexts = new Map<string, ElementContext>();
+  private elementContexts = new Map<string, ElementContext & { projectPath?: string }>();
   private pendingDiffs = new Map<string, any>();
+  
+  // Per-project service cache
+  private projectServices = new Map<string, {
+    sourceFinder: SourceFileFinder;
+    diffGenerator: DiffGenerator;
+    fileWriter: FileWriter;
+  }>();
 
   constructor(private options: ServerOptions = {}) {
     this.app = new Hono();
-    const projectRoot = options.projectRoot || process.cwd();
+    this.defaultProjectRoot = options.projectRoot || process.cwd();
 
-    this.configLoader = new ConfigLoader(projectRoot);
-    this.sourceFinder = new SourceFileFinder(projectRoot);
-    this.diffGenerator = new DiffGenerator(projectRoot);
-    this.fileWriter = new FileWriter(projectRoot);
+    this.configLoader = new ConfigLoader(this.defaultProjectRoot);
     this.adapterRegistry = new AdapterRegistry();
 
     this.setupRoutes();
+  }
+  
+  // Get or create services for a specific project path
+  private getProjectServices(projectPath?: string) {
+    const root = projectPath || this.defaultProjectRoot;
+    
+    let services = this.projectServices.get(root);
+    if (!services) {
+      console.log(`[Server] Creating services for project: ${root}`);
+      services = {
+        sourceFinder: new SourceFileFinder(root),
+        diffGenerator: new DiffGenerator(root),
+        fileWriter: new FileWriter(root),
+      };
+      this.projectServices.set(root, services);
+    }
+    
+    return services;
   }
 
   private setupRoutes(): void {
@@ -71,12 +91,48 @@ export class PixelCodeServer {
     // Health check
     this.app.get('/health', (c) => c.json({ status: 'ok' }));
 
-    // Serve client script
+    // Get project config
+    this.app.get('/config', async (c) => {
+      try {
+        const config = await this.configLoader.load();
+        const projectRoot = this.options.projectRoot || process.cwd();
+        return c.json({
+          ...config,
+          project: {
+            ...config.project,
+            path: config.project?.path || projectRoot,
+          },
+        });
+      } catch (error) {
+        console.error('Failed to load config:', error);
+        return c.json({ error: 'Failed to load config' }, 500);
+      }
+    });
+
+    // Serve client script with injected config
     this.app.get('/client.js', async (c) => {
       try {
         const clientPath = path.join(__dirname, '../../client/dist/client.js');
         const content = await readFile(clientPath, 'utf-8');
-        return c.text(content, 200, {
+        
+        // Load config and inject it into the client script
+        const config = await this.configLoader.load();
+        const projectRoot = config.project?.path || this.options.projectRoot || process.cwd();
+        const host = config.server?.host || this.options.host || 'localhost';
+        const port = config.server?.port || this.options.port || 7777;
+        
+        const injectedConfig = `
+;(function() {
+  window.__PIXELCODE_CONFIG__ = {
+    projectPath: ${JSON.stringify(projectRoot)},
+    host: ${JSON.stringify(host)},
+    port: ${port},
+    projectName: ${JSON.stringify(config.project?.name || path.basename(projectRoot))}
+  };
+})();
+`;
+        
+        return c.text(injectedConfig + content, 200, {
           'Content-Type': 'application/javascript',
         });
       } catch (error) {
@@ -109,8 +165,10 @@ export class PixelCodeServer {
       const payload = message.payload as any;
       const elementId = payload.elementId || crypto.randomUUID();
 
-      this.elementContexts.set(elementId, payload);
-      console.log(`[Server] Element selected: ${elementId}`);
+      // Extract context and store projectPath
+      const { elementId: _, projectPath, ...context } = payload;
+      this.elementContexts.set(elementId, { ...context, projectPath });
+      console.log(`[Server] Element selected: ${elementId}${projectPath ? ` (project: ${projectPath})` : ''}`);
     });
 
     // Prompt submission
@@ -133,10 +191,15 @@ export class PixelCodeServer {
       return;
     }
 
+    // Get project path from payload or context, fallback to default
+    const projectPath = payload.projectPath || context.projectPath || this.defaultProjectRoot;
+    const { diffGenerator } = this.getProjectServices(projectPath);
+
     try {
-      // Stage 1: Finding source file
-      this.sendStatus(ws, 'analyzing', 'Finding source file...', 10);
-      console.log('[Server] Searching for source file...');
+      // Stage 1: Prepare context for AI
+      this.sendStatus(ws, 'analyzing', 'Preparing element context...', 10);
+      console.log('[Server] Processing element context...');
+      console.log('[Server] Project:', projectPath);
       console.log('[Server] Framework:', context.framework.type);
       console.log(
         '[Server] Element:',
@@ -145,39 +208,22 @@ export class PixelCodeServer {
         context.element.className ? `.${context.element.className.split(' ')[0]}` : ''
       );
 
-      const sourceFiles = await this.sourceFinder.findSourceFiles(context);
-
-      if (sourceFiles.length === 0) {
-        console.error('[Server] No source files found for element');
-        console.error('[Server] Project root:', this.options.projectRoot || process.cwd());
-        this.wsServer?.sendError(
-          ws,
-          'SOURCE_NOT_FOUND',
-          'Could not find source file for this element. Make sure your HTML/source files are in the project directory.'
-        );
-        return;
+      // Get component info from React context
+      const reactContext = context.frameworkContext as any;
+      if (reactContext?.componentName) {
+        console.log('[Server] Component:', reactContext.componentName);
+      }
+      if (reactContext?.fiberPath?.length > 0) {
+        console.log('[Server] Component path:', reactContext.fiberPath.slice(-5).join(' → '));
       }
 
-      const primarySource = sourceFiles[0];
-      console.log(
-        '[Server] Found source file:',
-        primarySource.path,
-        `(relevance: ${primarySource.relevance})`
-      );
-      this.sendStatus(ws, 'analyzing', `Found: ${path.basename(primarySource.path)}`, 30);
-
-      // Stage 2: Read source code
-      const sourceCode = await readFile(primarySource.path, 'utf-8');
-
-      // Stage 3: Build prompt for CLI
-      this.sendStatus(ws, 'ai_processing', 'Building prompt...', 40);
+      // Stage 2: Build prompt with full context (no source file needed)
+      this.sendStatus(ws, 'ai_processing', 'Building prompt...', 30);
 
       // Add user's prompt to context
       const contextWithPrompt = { ...context, prompt: payload.prompt };
-      const prompt = buildOpenCodePrompt(
+      const prompt = buildContextOnlyPrompt(
         contextWithPrompt, 
-        sourceCode, 
-        primarySource.path,
         payload.conversationHistory
       );
 
@@ -186,7 +232,7 @@ export class PixelCodeServer {
         console.log(`[Server] Including ${payload.conversationHistory.length} messages in conversation history`);
       }
 
-      // Stage 4: Execute CLI - Use tool from payload or fallback to current adapter
+      // Stage 3: Execute CLI - Use tool from payload or fallback to current adapter
       let adapter = this.currentAdapter;
       if (payload.tool) {
         const requestedAdapter = await this.adapterRegistry.getAdapter(payload.tool);
@@ -204,19 +250,23 @@ export class PixelCodeServer {
       this.sendStatus(
         ws,
         'ai_processing',
-        `Asking ${adapter.name} to generate changes...`,
+        `Asking ${adapter.name} to find and edit files...`,
         50
       );
 
       const config = this.configLoader.get();
+      // Use sessionId from payload (unique per chat) or fallback to config
+      const sessionId = payload.sessionId || config.opencode?.session || 'pixelcode-default';
+      console.log(`[Server] Using session: ${sessionId}`);
+      
       const cliResponse = await adapter.run(prompt, {
-        session: config.opencode?.session,
+        session: sessionId,
         model: payload.model || config.opencode?.model,  // Use model from payload or config
         continueSession: config.opencode?.continueSession,
-        cwd: this.options.projectRoot || process.cwd(),
+        cwd: projectPath,
       });
 
-      // Stage 5: Parse response
+      // Stage 4: Parse response
       this.sendStatus(ws, 'generating_diff', 'Parsing AI response...', 70);
       
       // Check if response is in structured XML format
@@ -224,21 +274,14 @@ export class PixelCodeServer {
         // New structured format - can handle multiple files
         const structured = parseStructuredResponse(cliResponse);
         
-        // Fix file paths for legacy responses that have 'unknown' path
-        for (const change of structured.changes) {
-          if (change.filePath === 'unknown') {
-            change.filePath = primarySource.path;
-          }
-        }
-        
-        // Stage 6: Generate diffs for all changes
+        // Stage 5: Generate diffs for all changes
         this.sendStatus(ws, 'generating_diff', 'Generating diffs...', 85);
-        const multiDiff = await this.diffGenerator.generateMultiple(
+        const multiDiff = await diffGenerator.generateMultiple(
           structured.changes,
           structured.summary
         );
         
-        // Store all diffs for approval
+        // Store all diffs for approval (include projectPath for later use)
         const diffPayloads: Array<{
           diffId: string;
           file: string;
@@ -248,7 +291,7 @@ export class PixelCodeServer {
         }> = [];
         
         for (const diff of multiDiff.results) {
-          this.pendingDiffs.set(diff.id, diff);
+          this.pendingDiffs.set(diff.id, { ...diff, projectPath });
           
           // Find the corresponding action from changes
           const change = structured.changes.find(c => c.filePath === diff.file);
@@ -285,34 +328,15 @@ export class PixelCodeServer {
         // Note: Not sending status:complete here as the multi_diff:generated message 
         // already transitions the client to diff review state
       } else {
-        // Legacy single-file format
-        const { code: modifiedCode } = parseOpenCodeResponse(cliResponse);
-
-        // Stage 6: Generate diff
-        this.sendStatus(ws, 'generating_diff', 'Generating diff...', 85);
-        const diff = this.diffGenerator.generate(primarySource.path, sourceCode, modifiedCode);
-
-        // Store diff for approval
-        this.pendingDiffs.set(diff.id, diff);
-
-        // Send diff to client (legacy single-diff format)
-        this.wsServer?.send(ws, {
-          id: crypto.randomUUID(),
-          type: 'diff:generated',
-          payload: {
-            diffId: diff.id,
-            elementId: payload.elementId,
-            file: diff.file,
-            diff: diff.unifiedDiff,
-            preview: {
-              before: diff.originalCode,
-              after: diff.modifiedCode,
-            },
-          },
-          timestamp: Date.now(),
-        });
-
-        this.sendStatus(ws, 'complete', 'Ready for review', 100);
+        // Legacy format - AI didn't return structured XML
+        // This shouldn't happen with the new context-only prompt, but handle gracefully
+        console.warn('[Server] AI response not in structured format, raw response received');
+        this.wsServer?.sendError(
+          ws,
+          'PARSE_ERROR',
+          'AI response was not in the expected format. The AI should search for and edit files directly.'
+        );
+        this.sendStatus(ws, 'error', 'Unexpected response format', 0);
       }
     } catch (error) {
       console.error('[Server] Error handling prompt:', error);
@@ -357,21 +381,27 @@ export class PixelCodeServer {
 
   private async handleDiffApproval(ws: WebSocket, message: Message): Promise<void> {
     const payload = message.payload as DiffApprovalPayload;
-    const diff = this.pendingDiffs.get(payload.diffId);
+    const storedDiff = this.pendingDiffs.get(payload.diffId);
 
-    if (!diff) {
+    if (!storedDiff) {
       this.wsServer?.sendError(ws, 'DIFF_NOT_FOUND', 'Diff not found');
       return;
     }
+
+    // Extract projectPath and diff data
+    const { projectPath, ...diff } = storedDiff;
 
     if (payload.action === 'reject') {
       this.pendingDiffs.delete(payload.diffId);
       return;
     }
 
+    // Get fileWriter for the correct project
+    const { fileWriter } = this.getProjectServices(projectPath);
+
     // Apply changes
     try {
-      const result = await this.fileWriter.applyDiff(diff);
+      const result = await fileWriter.applyDiff(diff);
 
       if (result.success) {
         this.wsServer?.send(ws, {
@@ -560,7 +590,7 @@ export class PixelCodeServer {
         );
         console.log();
         console.log(pc.dim(`CLI Tool: ${this.currentAdapter?.name}`));
-        console.log(pc.dim(`Project: ${this.options.projectRoot || process.cwd()}`));
+        console.log(pc.dim(`Default Project: ${this.defaultProjectRoot}`));
         console.log();
       }
     );
