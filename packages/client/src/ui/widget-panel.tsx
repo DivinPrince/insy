@@ -1,7 +1,7 @@
 import { h } from 'preact';
 import { useState, useRef, useEffect } from 'preact/hooks';
 import type { FunctionComponent } from 'preact';
-import type { RecentEdit, ToolInfo, ModelInfo, ElementInfo, CodeChangeAction } from '@pixelcode/shared';
+import type { RecentEdit, ToolInfo, ModelInfo, ElementInfo, CodeChangeAction, ReactContext, FrameworkContext } from '@pixelcode/shared';
 import { StatusBadge } from './status-badge.js';
 
 // Cursor icon for element selector
@@ -34,6 +34,14 @@ interface ChatMessage {
   type: 'user' | 'system' | 'error';
   content: string;
   timestamp: number;
+  taggedElement?: {
+    tagName: string;
+    className?: string;
+    id?: string;
+    componentName?: string;
+    sourceFile?: string;
+    componentPath?: string[];
+  };
 }
 
 interface DiffPreview {
@@ -71,6 +79,7 @@ interface WidgetPanelProps {
   onKeepAll?: () => void;
   // Selected element
   selectedElementInfo?: ElementInfo | null;
+  selectedElementContext?: FrameworkContext | null;
   // Diff preview
   showDiff?: boolean;
   diffs?: DiffPreview[];
@@ -78,6 +87,10 @@ interface WidgetPanelProps {
   onRejectDiff?: (diffId?: string) => void;
   onApplyAllDiffs?: () => void;
   onRejectAllDiffs?: () => void;
+  // New chat
+  onNewChat?: () => void;
+  // Clear selected element
+  onClearElement?: () => void;
 }
 
 export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
@@ -102,17 +115,27 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
   onUndoAll,
   onKeepAll,
   selectedElementInfo,
+  selectedElementContext,
   showDiff,
   diffs = [],
   onApplyDiff,
   onRejectDiff,
   onApplyAllDiffs,
   onRejectAllDiffs,
+  onNewChat,
+  onClearElement,
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [showHistory, setShowHistory] = useState(false);
+  const [showElementDetails, setShowElementDetails] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  
+  // Extract React context info if available
+  const reactContext = selectedElementContext as ReactContext | null;
+  const componentName = reactContext?.componentName;
+  const sourceFile = reactContext?.source?.fileName;
+  const componentPath = reactContext?.fiberPath;
 
   const formatTimestamp = (ts: number) => {
     const now = Date.now();
@@ -197,6 +220,34 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
               </span>
               <StatusBadge connected={connected} />
             </>
+          )}
+          {/* New Chat Button */}
+          {messages.length > 0 && (
+            <button
+              onClick={onNewChat}
+              style={{
+                background: 'transparent',
+                border: '1px solid #e5e5e5',
+                color: '#666',
+                fontSize: '12px',
+                cursor: 'pointer',
+                padding: '4px 10px',
+                borderRadius: '6px',
+                fontWeight: '500',
+                fontFamily: 'inherit',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '4px',
+                marginLeft: '8px',
+              }}
+              title="Start a new conversation"
+            >
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              New Chat
+            </button>
           )}
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
@@ -338,36 +389,8 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
           maxHeight: '350px',
         }}
       >
-        {/* Selected Element Badge */}
-        {selectedElementInfo && messages.length === 0 && !isLoading && (
-          <div
-            style={{
-              padding: '10px 14px',
-              borderRadius: '10px',
-              backgroundColor: '#f5f5f5',
-              border: '1px solid #e5e5e5',
-              fontSize: '12px',
-              color: '#666',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-            }}
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" />
-            </svg>
-            <span>
-              <strong style={{ color: '#000' }}>&lt;{selectedElementInfo.tagName.toLowerCase()}&gt;</strong>
-              {selectedElementInfo.className && (
-                <span style={{ color: '#999', marginLeft: '4px' }}>
-                  .{selectedElementInfo.className.split(' ')[0]}
-                </span>
-              )}
-            </span>
-          </div>
-        )}
-
-        {messages.length === 0 && !isLoading && !selectedElementInfo && (
+        {/* Empty state - no messages */}
+        {messages.length === 0 && !isLoading && (
           <div
             style={{
               flex: 1,
@@ -382,10 +405,10 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
           >
             <div style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.5 }}>💬</div>
             <div style={{ fontSize: '14px', fontWeight: '500', color: '#666', marginBottom: '4px' }}>
-              Start a conversation
+              {selectedElementInfo ? 'Element selected' : 'Start a conversation'}
             </div>
             <div style={{ fontSize: '12px', color: '#999' }}>
-              Select an element or type a message
+              {selectedElementInfo ? 'Describe what you want to change' : 'Select an element or type a message'}
             </div>
           </div>
         )}
@@ -394,32 +417,89 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
           <div
             key={msg.id}
             style={{
-              padding: '10px 14px',
-              borderRadius: '12px',
-              fontSize: '13px',
-              lineHeight: '1.5',
-              ...(msg.type === 'user'
-                ? {
-                    backgroundColor: '#000',
-                    color: '#fff',
-                    alignSelf: 'flex-end',
-                    maxWidth: '85%',
-                  }
-                : msg.type === 'error'
-                ? {
-                    backgroundColor: '#fef2f2',
-                    color: '#dc2626',
-                    alignSelf: 'flex-start',
-                    border: '1px solid #fecaca',
-                  }
-                : {
-                    backgroundColor: '#f5f5f5',
-                    color: '#333',
-                    alignSelf: 'flex-start',
-                  }),
+              display: 'flex',
+              flexDirection: 'column',
+              gap: '4px',
+              alignSelf: msg.type === 'user' ? 'flex-end' : 'flex-start',
+              maxWidth: msg.type === 'user' ? '85%' : '100%',
             }}
           >
-            {msg.content}
+            {/* Tagged element pill for user messages - shows component name if available */}
+            {msg.type === 'user' && msg.taggedElement && (
+              <div
+                style={{
+                  display: 'inline-flex',
+                  alignItems: 'center',
+                  gap: '4px',
+                  backgroundColor: msg.taggedElement.componentName ? 'rgba(34, 197, 94, 0.2)' : 'rgba(255, 255, 255, 0.15)',
+                  borderRadius: '4px',
+                  padding: '3px 8px',
+                  fontSize: '10px',
+                  color: msg.taggedElement.componentName ? '#86efac' : 'rgba(255, 255, 255, 0.8)',
+                  fontFamily: 'SF Mono, Monaco, Consolas, monospace',
+                  alignSelf: 'flex-end',
+                  maxWidth: '100%',
+                  overflow: 'hidden',
+                }}
+              >
+                {msg.taggedElement.componentName ? (
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M12 6v6l4 2" />
+                  </svg>
+                ) : (
+                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <polyline points="16 18 22 12 16 6" />
+                    <polyline points="8 6 2 12 8 18" />
+                  </svg>
+                )}
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {msg.taggedElement.componentName ? (
+                    <>
+                      {msg.taggedElement.componentName}
+                      {msg.taggedElement.sourceFile && (
+                        <span style={{ color: 'rgba(255, 255, 255, 0.5)', marginLeft: '4px' }}>
+                          {msg.taggedElement.sourceFile.split('/').pop()}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      &lt;{msg.taggedElement.tagName.toLowerCase()}
+                      {msg.taggedElement.id && <span style={{ color: '#c4b5fd' }}>#{msg.taggedElement.id}</span>}
+                      {msg.taggedElement.className && <span style={{ color: '#86efac' }}>.{msg.taggedElement.className.split(' ')[0]}</span>}
+                      &gt;
+                    </>
+                  )}
+                </span>
+              </div>
+            )}
+            {/* Message content */}
+            <div
+              style={{
+                padding: '10px 14px',
+                borderRadius: '12px',
+                fontSize: '13px',
+                lineHeight: '1.5',
+                ...(msg.type === 'user'
+                  ? {
+                      backgroundColor: '#000',
+                      color: '#fff',
+                    }
+                  : msg.type === 'error'
+                  ? {
+                      backgroundColor: '#fef2f2',
+                      color: '#dc2626',
+                      border: '1px solid #fecaca',
+                    }
+                  : {
+                      backgroundColor: '#f5f5f5',
+                      color: '#333',
+                    }),
+              }}
+            >
+              {msg.content}
+            </div>
           </div>
         ))}
 
@@ -557,55 +637,60 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
                 );
               })}
             </div>
-            {/* Quick actions row */}
-            <div
-              style={{
-                display: 'flex',
-                gap: '8px',
-                padding: '8px 12px 12px',
-                justifyContent: 'flex-end',
-              }}
-            >
-              <button
-                onClick={() => onRejectAllDiffs?.()}
-                style={{
-                  padding: '6px 14px',
-                  border: '1px solid #e5e5e5',
-                  borderRadius: '6px',
-                  backgroundColor: '#fff',
-                  color: '#666',
-                  fontSize: '12px',
-                  fontWeight: '500',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                }}
-              >
-                Reject
-              </button>
-              <button
-                onClick={() => onApplyAllDiffs?.()}
-                style={{
-                  padding: '6px 14px',
-                  border: 'none',
-                  borderRadius: '6px',
-                  backgroundColor: '#000',
-                  color: '#fff',
-                  fontSize: '12px',
-                  fontWeight: '500',
-                  cursor: 'pointer',
-                  fontFamily: 'inherit',
-                }}
-              >
-                Apply
-              </button>
-            </div>
           </div>
         )}
         
         <div ref={messagesEndRef} />
       </div>
 
-
+      {/* Accept/Reject buttons - shown above input when diffs present */}
+      {showDiff && diffs.length > 0 && (
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            padding: '12px 16px',
+            borderTop: '1px solid #e5e5e5',
+            gap: '12px',
+          }}
+        >
+          <button
+            onClick={() => onRejectAllDiffs?.()}
+            style={{
+              flex: 1,
+              padding: '10px 16px',
+              border: '1px solid #e5e5e5',
+              borderRadius: '8px',
+              backgroundColor: '#fff',
+              color: '#666',
+              fontSize: '13px',
+              fontWeight: '500',
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+            }}
+          >
+            Reject
+          </button>
+          <button
+            onClick={() => onApplyAllDiffs?.()}
+            style={{
+              flex: 1,
+              padding: '10px 16px',
+              border: 'none',
+              borderRadius: '8px',
+              backgroundColor: '#16a34a',
+              color: '#fff',
+              fontSize: '13px',
+              fontWeight: '500',
+              cursor: 'pointer',
+              fontFamily: 'inherit',
+            }}
+          >
+            Apply
+          </button>
+        </div>
+      )}
 
       {/* Input Area - Always visible for continuing conversation */}
       <div
@@ -622,6 +707,198 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
             overflow: 'hidden',
           }}
         >
+          {/* Tagged Element Pill - Rich context display like React DevTools */}
+          {selectedElementInfo && (
+            <div
+              style={{
+                padding: '8px 12px 0 12px',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '6px',
+              }}
+            >
+              {/* Main element tag */}
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '6px',
+                  flexWrap: 'wrap',
+                }}
+              >
+                <div
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                    backgroundColor: componentName ? '#f0fdf4' : '#e8f4ff',
+                    border: `1px solid ${componentName ? '#bbf7d0' : '#bde0ff'}`,
+                    borderRadius: '6px',
+                    padding: '4px 8px',
+                    fontSize: '12px',
+                    color: componentName ? '#166534' : '#0066cc',
+                    fontFamily: 'SF Mono, Monaco, Consolas, monospace',
+                    fontWeight: '500',
+                    cursor: 'pointer',
+                  }}
+                  onClick={() => setShowElementDetails(!showElementDetails)}
+                  title="Click to show/hide details"
+                >
+                  {/* Component/Element icon */}
+                  {componentName ? (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="M12 6v6l4 2" />
+                    </svg>
+                  ) : (
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="16 18 22 12 16 6" />
+                      <polyline points="8 6 2 12 8 18" />
+                    </svg>
+                  )}
+                  {/* Display component name or tag */}
+                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {componentName ? (
+                      <>
+                        <span style={{ color: '#166534' }}>{componentName}</span>
+                        <span style={{ color: '#6b7280', marginLeft: '4px', fontSize: '10px' }}>
+                          &lt;{selectedElementInfo.tagName.toLowerCase()}&gt;
+                        </span>
+                      </>
+                    ) : (
+                      <>
+                        &lt;{selectedElementInfo.tagName.toLowerCase()}
+                        {selectedElementInfo.id && <span style={{ color: '#9333ea' }}>#{selectedElementInfo.id}</span>}
+                        {selectedElementInfo.className && (
+                          <span style={{ color: '#059669' }}>.{selectedElementInfo.className.split(' ')[0]}</span>
+                        )}
+                        &gt;
+                      </>
+                    )}
+                  </span>
+                  {/* Expand/collapse indicator */}
+                  <svg 
+                    width="10" 
+                    height="10" 
+                    viewBox="0 0 24 24" 
+                    fill="none" 
+                    stroke="currentColor" 
+                    strokeWidth="2"
+                    style={{ 
+                      transform: showElementDetails ? 'rotate(180deg)' : 'rotate(0deg)',
+                      transition: 'transform 0.15s ease',
+                      opacity: 0.5,
+                    }}
+                  >
+                    <path d="M6 9l6 6 6-6" />
+                  </svg>
+                </div>
+                
+                {/* Remove button */}
+                <button
+                  onClick={onClearElement}
+                  style={{
+                    background: 'transparent',
+                    border: 'none',
+                    color: '#999',
+                    cursor: 'pointer',
+                    padding: '4px',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    borderRadius: '4px',
+                  }}
+                  title="Remove element"
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <line x1="18" y1="6" x2="6" y2="18" />
+                    <line x1="6" y1="6" x2="18" y2="18" />
+                  </svg>
+                </button>
+              </div>
+              
+              {/* Expanded details panel */}
+              {showElementDetails && (
+                <div
+                  style={{
+                    backgroundColor: '#f9fafb',
+                    border: '1px solid #e5e7eb',
+                    borderRadius: '8px',
+                    padding: '10px 12px',
+                    fontSize: '11px',
+                    fontFamily: 'SF Mono, Monaco, Consolas, monospace',
+                    maxHeight: '150px',
+                    overflow: 'auto',
+                  }}
+                >
+                  {/* Source file location */}
+                  {sourceFile && (
+                    <div style={{ marginBottom: '8px' }}>
+                      <div style={{ color: '#6b7280', fontSize: '10px', marginBottom: '2px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        Source
+                      </div>
+                      <div style={{ color: '#2563eb', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                          <polyline points="14 2 14 8 20 8" />
+                        </svg>
+                        <span style={{ wordBreak: 'break-all' }}>
+                          {sourceFile.split('/').slice(-2).join('/')}
+                          {reactContext?.source?.lineNumber && `:${reactContext.source.lineNumber}`}
+                        </span>
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* Component tree path */}
+                  {componentPath && componentPath.length > 0 && (
+                    <div>
+                      <div style={{ color: '#6b7280', fontSize: '10px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        Component Tree
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                        {componentPath.slice(-6).map((comp, i, arr) => (
+                          <div 
+                            key={i} 
+                            style={{ 
+                              display: 'flex', 
+                              alignItems: 'center',
+                              color: i === arr.length - 1 ? '#166534' : '#6b7280',
+                              fontWeight: i === arr.length - 1 ? '600' : '400',
+                            }}
+                          >
+                            <span style={{ marginLeft: `${i * 8}px`, marginRight: '4px', color: '#d1d5db' }}>
+                              {i === arr.length - 1 ? '└─' : '├─'}
+                            </span>
+                            {comp}
+                          </div>
+                        ))}
+                        {componentPath.length > 6 && (
+                          <div style={{ color: '#9ca3af', fontSize: '10px', marginLeft: '8px' }}>
+                            ... and {componentPath.length - 6} more ancestors
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                  
+                  {/* HTML snippet */}
+                  {!componentPath && selectedElementInfo.html && (
+                    <div>
+                      <div style={{ color: '#6b7280', fontSize: '10px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                        HTML
+                      </div>
+                      <div style={{ color: '#374151', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: '60px', overflow: 'hidden' }}>
+                        {selectedElementInfo.html.substring(0, 200)}
+                        {selectedElementInfo.html.length > 200 && '...'}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+          
           {/* Textarea */}
           <textarea
             ref={textareaRef}
@@ -629,11 +906,11 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
             onInput={(e) => setInputValue((e.target as HTMLTextAreaElement).value)}
             onKeyDown={handleKeyDown}
             disabled={!connected || isLoading}
-            placeholder={connected ? "Plan, @ for context, / for commands" : "Connecting..."}
+            placeholder={connected ? (selectedElementInfo ? "What would you like to change?" : "Select an element or describe what you need...") : "Connecting..."}
             rows={1}
             style={{
               width: '100%',
-              padding: '14px 16px',
+              padding: selectedElementInfo ? '8px 16px 14px 16px' : '14px 16px',
               border: 'none',
               backgroundColor: 'transparent',
               color: '#000',
@@ -746,7 +1023,7 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
               )}
             </div>
 
-            {/* Right side - send button */}
+            {/* Right side - Send button */}
             <button
               type="button"
               onClick={() => handleSubmit()}

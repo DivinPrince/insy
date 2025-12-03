@@ -27,9 +27,11 @@
         width: 100%;
         height: 100%;
         background-image:
-          radial-gradient(circle at 20% 50%, rgba(34, 197, 94, 0.1) 0%, transparent 50%),
-          radial-gradient(circle at 80% 80%, rgba(34, 197, 94, 0.1) 0%, transparent 50%),
-          radial-gradient(circle at 40% 20%, rgba(34, 197, 94, 0.08) 0%, transparent 50%);
+          radial-gradient(circle at 10% 20%, rgba(34, 197, 94, 0.15) 0%, transparent 40%),
+          radial-gradient(circle at 90% 80%, rgba(34, 197, 94, 0.12) 0%, transparent 40%),
+          radial-gradient(circle at 50% 50%, rgba(34, 197, 94, 0.08) 0%, transparent 60%),
+          radial-gradient(circle at 80% 20%, rgba(34, 197, 94, 0.1) 0%, transparent 35%),
+          radial-gradient(circle at 20% 80%, rgba(34, 197, 94, 0.1) 0%, transparent 35%);
         background-size: 100% 100%;
         z-index: 0;
         transition: opacity 0.3s ease;
@@ -40,20 +42,9 @@
         width: 100%;
         height: 100%;
         background-image:
-          repeating-linear-gradient(
-            45deg,
-            transparent,
-            transparent 60px,
-            rgba(34, 197, 94, 0.02) 60px,
-            rgba(34, 197, 94, 0.02) 61px
-          ),
-          repeating-linear-gradient(
-            -45deg,
-            transparent,
-            transparent 60px,
-            rgba(34, 197, 94, 0.02) 60px,
-            rgba(34, 197, 94, 0.02) 61px
-          );
+          radial-gradient(circle at 25% 25%, rgba(34, 197, 94, 0.04) 1px, transparent 1px),
+          radial-gradient(circle at 75% 75%, rgba(34, 197, 94, 0.04) 1px, transparent 1px);
+        background-size: 50px 50px;
         z-index: 0;
       }
       body.dark-mode {
@@ -139,10 +130,8 @@
         width: 200%;
         height: 200%;
         background-image:
-          radial-gradient(circle at 20% 20%, rgba(255, 255, 255, 0.15) 0%, transparent 30%),
-          radial-gradient(circle at 80% 80%, rgba(255, 255, 255, 0.15) 0%, transparent 30%),
-          radial-gradient(circle at 40% 60%, rgba(255, 255, 255, 0.12) 0%, transparent 25%);
-        animation: float 20s ease-in-out infinite;
+          radial-gradient(circle, rgba(255, 255, 255, 0.12) 2px, transparent 2px);
+        background-size: 30px 30px;
       }
       .image-side::after {
         content: '';
@@ -151,32 +140,16 @@
         height: 100%;
         background-image:
           repeating-linear-gradient(
-            90deg,
+            45deg,
             transparent,
-            transparent 40px,
-            rgba(255, 255, 255, 0.08) 40px,
-            rgba(255, 255, 255, 0.08) 41px
-          ),
-          repeating-linear-gradient(
-            0deg,
-            transparent,
-            transparent 40px,
-            rgba(255, 255, 255, 0.08) 40px,
-            rgba(255, 255, 255, 0.08) 41px
+            transparent 25px,
+            rgba(255, 255, 255, 0.06) 25px,
+            rgba(255, 255, 255, 0.06) 50px
           );
-      }
-      @keyframes float {
-        0%,
-        100% {
-          transform: translate(0, 0) rotate(0deg);
-        }
-        50% {
-          transform: translate(-50px, -50px) rotate(180deg);
-        }
       }
       .image-content {
         text-align: center;
-        color: white;
+        color: #ffffff;
         position: relative;
         z-index: 1;
       }
@@ -194,6 +167,7 @@
         font-size: 18px;
         opacity: 0.9;
         margin: 0;
+        line-height: 1.6;
       }
       .login-container {
         flex: 1;
@@ -379,8 +353,8 @@
               stroke-linejoin="round"
             />
           </svg>
-          <h2>Welcome Back</h2>
-          <p>Login to access your account</p>
+          <h2>PixelCode</h2>
+          <p>A modern development platform for building beautiful applications with speed and precision</p>
         </div>
       </div>
       <div class="login-container">

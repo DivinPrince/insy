@@ -21,6 +21,9 @@ import type {
   CodeChangeAction,
   ToolsListPayload,
   ModelsListPayload,
+  FrameworkContext,
+  ReactContext,
+  ConversationMessage,
 } from '@pixelcode/shared';
 
 // Types for chat state
@@ -31,6 +34,14 @@ interface ChatMessage {
   type: 'user' | 'system' | 'error';
   content: string;
   timestamp: number;
+  taggedElement?: {
+    tagName: string;
+    className?: string;
+    id?: string;
+    componentName?: string;
+    sourceFile?: string;
+    componentPath?: string[];
+  };
 }
 
 interface DiffPreview {
@@ -72,6 +83,7 @@ class PixelCode {
   private statusMessage: string = '';
   private statusProgress: number = 0;
   private selectedElementInfo: ElementInfo | null = null;
+  private selectedElementContext: FrameworkContext | null = null;
   
   // Tool & Model state
   private availableTools: ToolInfo[] = [];
@@ -85,6 +97,15 @@ class PixelCode {
     this.widgetPosition = prefs.position;
     this.widgetExpanded = prefs.expanded;
     this.recentEdits = PreferencesStore.getRecentEdits();
+    
+    // Load user selections (model, tool)
+    const userSelections = PreferencesStore.getUserSelections();
+    if (userSelections.selectedTool) {
+      this.selectedTool = userSelections.selectedTool;
+    }
+    if (userSelections.selectedModel) {
+      this.selectedModel = userSelections.selectedModel;
+    }
 
     // Create UI container with Shadow DOM for style isolation
     const uiHost = document.createElement('div');
@@ -244,6 +265,7 @@ class PixelCode {
     // Generate unique ID for this element
     this.currentElementId = generateId();
     this.selectedElementInfo = info;
+    this.selectedElementContext = frameworkContext || null;
 
     // Send to server
     this.ws.send(
@@ -252,10 +274,10 @@ class PixelCode {
         elementId: this.currentElementId,
       })
     );
-
-    // Reset chat state
+    
+    // Reset only the chat state (not the messages)
+    // Note: We don't add a system message here - the element is shown as a tag in the input area
     this.chatState = 'prompt';
-    this.chatMessages = [];
     this.currentDiff = null;
     
     // Request available tools
@@ -340,22 +362,74 @@ class PixelCode {
     this.renderWidget();
   }
 
-  private handlePromptSubmit(prompt: string): void {
-    if (!this.currentElementId) return;
+  private handleNewChat(): void {
+    // Clear conversation but keep the widget open
+    this.chatMessages = [];
+    this.currentDiff = null;
+    this.currentDiffs = [];
+    this.diffSummary = '';
+    this.chatState = 'prompt';
+    this.currentElementId = null;
+    this.selectedElementInfo = null;
+    this.selectedElementContext = null;
+    this.statusMessage = '';
+    this.statusProgress = 0;
+    this.renderWidget();
+  }
 
-    // Add user message to chat
-    this.chatMessages.push({
+  private handleClearElement(): void {
+    // Clear only the selected element, keep the conversation
+    this.selectedElementInfo = null;
+    this.selectedElementContext = null;
+    this.currentElementId = null;
+    this.renderWidget();
+  }
+
+  private handlePromptSubmit(prompt: string): void {
+    // Add user message to chat with tagged element if present
+    const userMessage: ChatMessage = {
       id: generateId(),
       type: 'user',
       content: prompt,
       timestamp: Date.now(),
-    });
+    };
+    
+    // Tag the current element to this message with full context
+    if (this.selectedElementInfo) {
+      const reactContext = this.selectedElementContext as ReactContext | null;
+      userMessage.taggedElement = {
+        tagName: this.selectedElementInfo.tagName,
+        className: this.selectedElementInfo.className || undefined,
+        id: this.selectedElementInfo.id || undefined,
+        componentName: reactContext?.componentName,
+        sourceFile: reactContext?.source?.fileName,
+        componentPath: reactContext?.fiberPath,
+      };
+    }
+    
+    this.chatMessages.push(userMessage);
+    
+    // If no element is selected, we still allow sending the message
+    // The server can handle context-less prompts
+    if (!this.currentElementId) {
+      // Generate a temporary ID for messages without element context
+      this.currentElementId = generateId();
+    }
 
     // Update state to loading
     this.chatState = 'loading';
     this.statusMessage = 'Sending request...';
     this.statusProgress = 0;
     this.renderWidget();
+
+    // Build conversation history from chat messages
+    const conversationHistory: ConversationMessage[] = this.chatMessages.map(msg => ({
+      role: msg.type === 'user' ? 'user' as const : 
+            msg.type === 'system' ? 'assistant' as const : 
+            'assistant' as const,
+      content: msg.content,
+      taggedElement: msg.taggedElement,
+    }));
 
     this.ws.send(
       this.createMessage('prompt:submit', {
@@ -364,6 +438,7 @@ class PixelCode {
         mode: 'preview',
         tool: this.selectedTool || undefined,
         model: this.selectedModel || undefined,
+        conversationHistory,
       })
     );
   }
@@ -371,10 +446,17 @@ class PixelCode {
   private handleToolsList(payload: ToolsListPayload): void {
     this.availableTools = payload.tools;
     
-    // Select first tool if none selected
-    if (!this.selectedTool && payload.tools.length > 0) {
+    // Check if saved tool is still available, otherwise select first
+    const savedToolAvailable = this.selectedTool && 
+      payload.tools.some(t => t.identifier === this.selectedTool);
+    
+    if (!savedToolAvailable && payload.tools.length > 0) {
       this.selectedTool = payload.tools[0].identifier;
-      // Request models for the selected tool
+      PreferencesStore.setSelectedTool(this.selectedTool);
+    }
+    
+    // Request models for the selected tool
+    if (this.selectedTool) {
       this.requestModels(this.selectedTool);
     }
     
@@ -385,9 +467,13 @@ class PixelCode {
   private handleModelsList(payload: ModelsListPayload): void {
     this.availableModels = payload.models;
     
-    // Select first model if none selected
-    if (!this.selectedModel && payload.models.length > 0) {
+    // Check if saved model is still available, otherwise select first
+    const savedModelAvailable = this.selectedModel && 
+      payload.models.some(m => m.id === this.selectedModel);
+    
+    if (!savedModelAvailable && payload.models.length > 0) {
       this.selectedModel = payload.models[0].id;
+      PreferencesStore.setSelectedModel(this.selectedModel);
     }
     
     this.renderWidget();
@@ -406,12 +492,14 @@ class PixelCode {
     this.selectedTool = toolIdentifier;
     this.selectedModel = ''; // Reset model when tool changes
     this.availableModels = []; // Clear models
+    PreferencesStore.setSelectedTool(toolIdentifier);
     this.requestModels(toolIdentifier);
     this.renderWidget();
   }
 
   private handleModelChange(modelId: string): void {
     this.selectedModel = modelId;
+    PreferencesStore.setSelectedModel(modelId);
     this.renderWidget();
   }
 
@@ -582,8 +670,10 @@ class PixelCode {
       timestamp: Date.now(),
     });
     
-    this.chatState = 'complete';
+    // Go back to prompt state so user can continue the conversation
+    this.chatState = 'prompt';
     this.currentDiff = null;
+    this.currentDiffs = [];
     this.renderWidget();
     
     this.showToast('Changes applied successfully!', 'success');
@@ -601,11 +691,6 @@ class PixelCode {
       PreferencesStore.addRecentEdit(edit);
       this.renderWidget();
     }
-    
-    // Close chat panel after a short delay
-    setTimeout(() => {
-      this.closeChatPanel();
-    }, 1500);
   }
 
   private handleError(payload: ErrorPayload): void {
@@ -760,6 +845,7 @@ class PixelCode {
           selectedModel={this.selectedModel}
           onModelChange={(model) => this.handleModelChange(model)}
           selectedElementInfo={this.selectedElementInfo}
+          selectedElementContext={this.selectedElementContext}
           // Diff functionality
           showDiff={this.chatState === 'diff'}
           diffs={this.currentDiffs}
@@ -767,6 +853,8 @@ class PixelCode {
           onRejectDiff={(diffId) => this.handleDiffReject(diffId || this.currentDiff?.diffId || '')}
           onApplyAllDiffs={() => this.handleApplyAllDiffs()}
           onRejectAllDiffs={() => this.handleRejectAllDiffs()}
+          onNewChat={() => this.handleNewChat()}
+          onClearElement={() => this.handleClearElement()}
         />,
         this.widgetContainer
       );

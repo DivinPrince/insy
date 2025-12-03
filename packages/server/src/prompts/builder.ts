@@ -1,12 +1,31 @@
-import type { ElementContext } from '@pixelcode/shared';
+import type { ElementContext, ConversationMessage } from '@pixelcode/shared';
 
 export function buildOpenCodePrompt(
   context: ElementContext,
   sourceCode: string,
-  sourceFilePath: string
+  sourceFilePath: string,
+  conversationHistory?: ConversationMessage[]
 ): string {
   const componentName = getComponentName(context);
   const language = getLanguageFromPath(sourceFilePath);
+
+  // Build conversation history section if available
+  let conversationSection = '';
+  if (conversationHistory && conversationHistory.length > 1) {
+    conversationSection = `
+## Conversation History
+This is an ongoing conversation. Here's what has been discussed so far:
+
+${conversationHistory.map(msg => {
+  const elementContext = msg.taggedElement 
+    ? ` [Context: ${msg.taggedElement.componentName || `<${msg.taggedElement.tagName}>`}${msg.taggedElement.sourceFile ? ` in ${msg.taggedElement.sourceFile.split('/').pop()}` : ''}]`
+    : '';
+  return `**${msg.role === 'user' ? 'User' : 'Assistant'}**${elementContext}: ${msg.content}`;
+}).join('\n\n')}
+
+---
+`;
+  }
 
   return `# PixelCode Edit Request
 
@@ -24,8 +43,8 @@ ${context.element.textContent ? `- Text Content: "${truncate(context.element.tex
 \`\`\`${language}
 ${sourceCode}
 \`\`\`
-
-## User's Request
+${conversationSection}
+## User's Current Request
 "${context.prompt}"
 
 ## Your Task
@@ -34,6 +53,7 @@ Please modify the code to implement the user's request. Important guidelines:
 2. Only change what's necessary to fulfill the request
 3. Keep all imports, exports, and other components unchanged
 4. Maintain the same indentation style
+5. Consider the conversation history - the user may be asking for follow-up changes or refinements
 
 ## Design Guidelines
 When making visual/styling changes, keep in mind:
@@ -91,24 +111,29 @@ export function parseOpenCodeResponse(response: string): {
   // This is the legacy parser - kept for backward compatibility
   // Use parseStructuredResponse from ./parser.ts for the new XML format
   
-  // Extract code block from response
+  // Extract code block from response (with or without language specifier)
   const codeBlockRegex = /```(\w+)?\s*\n([\s\S]+?)```/;
   const match = response.match(codeBlockRegex);
 
-  if (!match) {
-    // If no code block found, maybe the entire response is code
-    // This is a fallback
-    console.warn('[Parser] No code block found in response, using entire response');
-    return {
-      code: response.trim(),
-      language: 'javascript',
-    };
+  if (match) {
+    const language = match[1] || 'javascript';
+    const code = match[2].trim();
+    return { code, language };
   }
 
-  const language = match[1] || 'javascript';
-  const code = match[2].trim();
+  // Try to find code block without newline after backticks
+  const altCodeBlockRegex = /```(\w+)?([\s\S]+?)```/;
+  const altMatch = response.match(altCodeBlockRegex);
 
-  return { code, language };
+  if (altMatch) {
+    const language = altMatch[1] || 'javascript';
+    const code = altMatch[2].trim();
+    return { code, language };
+  }
+
+  // No code block found - return empty
+  console.warn('[Parser] No code block found in response');
+  return { code: '', language: 'javascript' };
 }
 
 function getComponentName(context: ElementContext): string | undefined {

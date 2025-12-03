@@ -174,7 +174,17 @@ export class PixelCodeServer {
 
       // Add user's prompt to context
       const contextWithPrompt = { ...context, prompt: payload.prompt };
-      const prompt = buildOpenCodePrompt(contextWithPrompt, sourceCode, primarySource.path);
+      const prompt = buildOpenCodePrompt(
+        contextWithPrompt, 
+        sourceCode, 
+        primarySource.path,
+        payload.conversationHistory
+      );
+
+      // Log conversation history if present
+      if (payload.conversationHistory && payload.conversationHistory.length > 0) {
+        console.log(`[Server] Including ${payload.conversationHistory.length} messages in conversation history`);
+      }
 
       // Stage 4: Execute CLI - Use tool from payload or fallback to current adapter
       let adapter = this.currentAdapter;

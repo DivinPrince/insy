@@ -182,12 +182,27 @@ export interface ElementSelectPayload {
   sourceHints?: SourceHints;
 }
 
+// Conversation message for chat history
+export interface ConversationMessage {
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  taggedElement?: {
+    tagName: string;
+    className?: string;
+    id?: string;
+    componentName?: string;
+    sourceFile?: string;
+    componentPath?: string[];
+  };
+}
+
 export interface PromptSubmitPayload {
   elementId: string;
   prompt: string;
   mode?: 'preview' | 'auto-apply';
   tool?: string;          // User-selected tool
   model?: string;         // User-selected model
+  conversationHistory?: ConversationMessage[];  // Full conversation history
 }
 
 export interface DiffApprovalPayload {
@@ -342,6 +357,11 @@ export interface WidgetPreferences {
   position: { x: number; y: number };
   expanded: boolean;
   visible: boolean;
+}
+
+export interface UserSelections {
+  selectedTool?: string;
+  selectedModel?: string;
 }
 
 // ============================================================================

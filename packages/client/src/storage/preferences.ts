@@ -1,4 +1,4 @@
-import type { WidgetPreferences, RecentEdit } from '@pixelcode/shared';
+import type { WidgetPreferences, RecentEdit, UserSelections } from '@pixelcode/shared';
 
 const STORAGE_PREFIX = 'pixelcode_';
 
@@ -51,5 +51,23 @@ export class PreferencesStore {
 
   static clearRecentEdits(): void {
     this.set('recent_edits', []);
+  }
+
+  // User selections (model, tool, etc.)
+  static getUserSelections(): UserSelections {
+    return this.get<UserSelections>('user_selections', {});
+  }
+
+  static setUserSelections(selections: Partial<UserSelections>): void {
+    const current = this.getUserSelections();
+    this.set('user_selections', { ...current, ...selections });
+  }
+
+  static setSelectedModel(modelId: string): void {
+    this.setUserSelections({ selectedModel: modelId });
+  }
+
+  static setSelectedTool(toolIdentifier: string): void {
+    this.setUserSelections({ selectedTool: toolIdentifier });
   }
 }

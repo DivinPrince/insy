@@ -81,36 +81,44 @@ export function parseStructuredResponse(response: string): StructuredCodeRespons
  * Legacy parser for backward compatibility with simple code block responses
  */
 function parseLegacyResponse(response: string): StructuredCodeResponse {
-  // Extract code block from response
+  // Extract code block from response (with newline after backticks)
   const codeBlockRegex = /```(\w+)?\s*\n([\s\S]+?)```/;
   const match = response.match(codeBlockRegex);
   
-  if (!match) {
-    console.warn('[Parser] No code block found in response');
+  if (match) {
+    const language = match[1] || 'javascript';
+    const code = match[2].trim();
     return {
       changes: [{
         filePath: 'unknown',
         action: 'modify',
-        language: 'javascript',
-        content: response.trim(),
+        language,
+        content: code,
       }],
     };
   }
-  
-  const language = match[1] || 'javascript';
-  const code = match[2].trim();
-  
-  return {
-    changes: [{
-      filePath: 'unknown',  // Will need to be filled in by caller
-      action: 'modify',
-      language,
-      content: code,
-    }],
-  };
-}
 
-/**
+  // Try to find code block without newline after backticks
+  const altCodeBlockRegex = /```(\w+)?([\s\S]+?)```/;
+  const altMatch = response.match(altCodeBlockRegex);
+
+  if (altMatch) {
+    const language = altMatch[1] || 'javascript';
+    const code = altMatch[2].trim();
+    return {
+      changes: [{
+        filePath: 'unknown',
+        action: 'modify',
+        language,
+        content: code,
+      }],
+    };
+  }
+
+  // No code block found - return empty changes
+  console.warn('[Parser] No code block found in response');
+  return { changes: [] };
+}/**
  * Check if a string is a valid CodeChangeAction
  */
 function isValidAction(action: string): action is CodeChangeAction {
