@@ -180,6 +180,11 @@ export class PixelCodeServer {
     this.wsServer.on('diff:approve', async (ws, message) => {
       await this.handleDiffApproval(ws, message);
     });
+
+    // Diff undo
+    this.wsServer.on('diff:undo', async (ws, message) => {
+      await this.handleDiffUndo(ws, message);
+    });
   }
 
   private async handlePrompt(ws: WebSocket, message: Message): Promise<void> {
@@ -197,7 +202,7 @@ export class PixelCodeServer {
 
     try {
       // Stage 1: Prepare context for AI
-      this.sendStatus(ws, 'analyzing', 'Preparing element context...', 10);
+      this.sendStatus(ws, payload.elementId, 'analyzing', 'Preparing element context...', 10);
       console.log('[Server] Processing element context...');
       console.log('[Server] Project:', projectPath);
       console.log('[Server] Framework:', context.framework.type);
@@ -218,7 +223,7 @@ export class PixelCodeServer {
       }
 
       // Stage 2: Build prompt with full context (no source file needed)
-      this.sendStatus(ws, 'ai_processing', 'Building prompt...', 30);
+      this.sendStatus(ws, payload.elementId, 'ai_processing', 'Building prompt...', 30);
 
       // Add user's prompt to context
       const contextWithPrompt = { ...context, prompt: payload.prompt };
@@ -249,6 +254,7 @@ export class PixelCodeServer {
 
       this.sendStatus(
         ws,
+        payload.elementId,
         'ai_processing',
         `Asking ${adapter.name} to find and edit files...`,
         50
@@ -266,8 +272,13 @@ export class PixelCodeServer {
         cwd: projectPath,
       });
 
+      // Log full AI response
+      console.log('[Server] ===== FULL AI RESPONSE =====');
+      console.log(cliResponse);
+      console.log('[Server] ===== END AI RESPONSE =====');
+
       // Stage 4: Parse response
-      this.sendStatus(ws, 'generating_diff', 'Parsing AI response...', 70);
+      this.sendStatus(ws, payload.elementId, 'generating_diff', 'Parsing AI response...', 70);
       
       // Check if response is in structured XML format
       if (isStructuredResponse(cliResponse)) {
@@ -275,7 +286,7 @@ export class PixelCodeServer {
         const structured = parseStructuredResponse(cliResponse);
         
         // Stage 5: Generate diffs for all changes
-        this.sendStatus(ws, 'generating_diff', 'Generating diffs...', 85);
+        this.sendStatus(ws, payload.elementId, 'generating_diff', 'Generating diffs...', 85);
         const multiDiff = await diffGenerator.generateMultiple(
           structured.changes,
           structured.summary
@@ -318,7 +329,7 @@ export class PixelCodeServer {
           id: crypto.randomUUID(),
           type: 'multi_diff:generated',
           payload: {
-            elementId: payload.elementId,
+            instanceId: payload.elementId,
             summary: structured.summary,
             diffs: diffPayloads,
           },
@@ -334,9 +345,9 @@ export class PixelCodeServer {
         this.wsServer?.sendError(
           ws,
           'PARSE_ERROR',
-          'AI response was not in the expected format. The AI should search for and edit files directly.'
+          'AI response was not in the expected XML format. Expected <file_changes> with file content for diff generation.'
         );
-        this.sendStatus(ws, 'error', 'Unexpected response format', 0);
+        this.sendStatus(ws, payload.elementId, 'error', 'Unexpected response format', 0);
       }
     } catch (error) {
       console.error('[Server] Error handling prompt:', error);
@@ -364,7 +375,7 @@ export class PixelCodeServer {
         });
         
         // Also send a status update to clear the loading state
-        this.sendStatus(ws, 'error', userMessage, 0);
+        this.sendStatus(ws, payload.elementId, 'error', userMessage, 0);
         return;
       }
       
@@ -375,7 +386,7 @@ export class PixelCodeServer {
       );
       
       // Send error status to clear loading state
-      this.sendStatus(ws, 'error', error instanceof Error ? error.message : 'An error occurred', 0);
+      this.sendStatus(ws, payload.elementId, 'error', error instanceof Error ? error.message : 'An error occurred', 0);
     }
   }
 
@@ -392,14 +403,18 @@ export class PixelCodeServer {
     const { projectPath, ...diff } = storedDiff;
 
     if (payload.action === 'reject') {
+      // Permanent reject - restore from backup if applied, then delete
+      const { fileWriter } = this.getProjectServices(projectPath);
+      await fileWriter.undo(payload.diffId);
       this.pendingDiffs.delete(payload.diffId);
+      console.log(`[Server] Rejected and cleaned up diff ${payload.diffId}`);
       return;
     }
 
     // Get fileWriter for the correct project
     const { fileWriter } = this.getProjectServices(projectPath);
 
-    // Apply changes
+    // Apply changes (action === 'apply')
     try {
       const result = await fileWriter.applyDiff(diff);
 
@@ -416,7 +431,9 @@ export class PixelCodeServer {
           timestamp: Date.now(),
         });
 
-        this.pendingDiffs.delete(payload.diffId);
+        // DON'T delete from pendingDiffs - keep it for undo capability
+        // Only delete on permanent accept (Check button) or reject (X button)
+        console.log(`[Server] Applied diff ${payload.diffId}, keeping in memory for undo`);
       } else {
         this.wsServer?.sendError(ws, 'WRITE_ERROR', result.error || 'Failed to write file');
       }
@@ -425,6 +442,50 @@ export class PixelCodeServer {
       this.wsServer?.sendError(
         ws,
         'WRITE_ERROR',
+        error instanceof Error ? error.message : 'Unknown error'
+      );
+    }
+  }
+
+  private async handleDiffUndo(ws: WebSocket, message: Message): Promise<void> {
+    const payload = message.payload as { diffId: string };
+    const storedDiff = this.pendingDiffs.get(payload.diffId);
+
+    if (!storedDiff) {
+      this.wsServer?.sendError(ws, 'DIFF_NOT_FOUND', 'Diff not found');
+      return;
+    }
+
+    // Extract projectPath
+    const { projectPath } = storedDiff;
+
+    // Get fileWriter for the correct project
+    const { fileWriter } = this.getProjectServices(projectPath);
+
+    // Undo changes (restore from backup)
+    try {
+      const success = await fileWriter.undo(payload.diffId);
+
+      if (success) {
+        this.wsServer?.send(ws, {
+          id: crypto.randomUUID(),
+          type: 'diff:undone',
+          payload: {
+            diffId: payload.diffId,
+            success: true,
+          },
+          timestamp: Date.now(),
+        });
+
+        console.log(`[Server] Undid changes for diff ${payload.diffId}`);
+      } else {
+        this.wsServer?.sendError(ws, 'UNDO_ERROR', 'Failed to undo changes');
+      }
+    } catch (error) {
+      console.error('[Server] Error undoing diff:', error);
+      this.wsServer?.sendError(
+        ws,
+        'UNDO_ERROR',
         error instanceof Error ? error.message : 'Unknown error'
       );
     }
@@ -516,11 +577,11 @@ export class PixelCodeServer {
     }
   }
 
-  private sendStatus(ws: WebSocket, stage: string, message: string, progress?: number): void {
+  private sendStatus(ws: WebSocket, elementId: string, stage: string, message: string, progress?: number): void {
     this.wsServer?.send(ws, {
       id: crypto.randomUUID(),
       type: 'status:update',
-      payload: { stage, message, progress } as StatusUpdatePayload,
+      payload: { instanceId: elementId, stage, message, progress } as StatusUpdatePayload,
       timestamp: Date.now(),
     });
   }

@@ -14,13 +14,13 @@ export class ElementSelector {
     }
   };
 
-  private handleClick = (e: MouseEvent): void => {
+  private handleClick = async (e: MouseEvent): Promise<void> => {
     e.preventDefault();
     e.stopPropagation();
     
     const target = e.target as HTMLElement;
     if (target && target !== this.overlay && target !== this.label) {
-      this.handleSelection(target);
+      await this.handleSelection(target);
     }
   };
 

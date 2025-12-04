@@ -1,519 +1,470 @@
-import { render } from 'preact';
-import { WebSocketClient } from './websocket/client.js';
-import { ElementSelector } from './core/selector.js';
-import { detectFramework, captureFrameworkContext } from './frameworks/detector.js';
-import { captureElement, extractSourceHints } from './core/capture.js';
-import { Toast } from './ui/toast.js';
-import { WidgetButton } from './ui/widget-button.js';
-import { WidgetPanel } from './ui/widget-panel.js';
-import { PreferencesStore } from './storage/preferences.js';
+import { render, h } from 'preact';
+import { WebSocketClient } from './websocket/client';
+import { ElementSelector } from './core/selector';
+import { detectFramework, captureFrameworkContext } from './frameworks/detector';
+import { extractSourceHints } from './core/capture';
+import { WidgetButton } from './ui/widget-button';
+import { QuickEdit } from './ui/quick-edit';
+import type { DiffPreview } from './ui/quick-edit';
 import type {
   Message,
-  ElementContext,
   ElementInfo,
+  ElementContext,
+  FrameworkContext,
   StatusUpdatePayload,
   DiffGeneratedPayload,
   MultiDiffGeneratedPayload,
-  ErrorPayload,
-  RecentEdit,
-  ToolInfo,
-  ModelInfo,
-  CodeChangeAction,
+  DiffAppliedPayload,
   ToolsListPayload,
   ModelsListPayload,
-  FrameworkContext,
-  ReactContext,
-  ConversationMessage,
+  ModelInfo,
+  ToolInfo
 } from '@pixelcode/shared';
 
-// Injected config from server (populated when client.js is served)
-interface PixelCodeConfig {
-  projectPath: string;
-  host: string;
-  port: number;
-  projectName?: string;
-}
-
-declare global {
-  interface Window {
-    __PIXELCODE_CONFIG__?: PixelCodeConfig;
-  }
-}
-
-// Get config from injected global or use defaults
-function getConfig(): PixelCodeConfig {
-  return window.__PIXELCODE_CONFIG__ || {
-    projectPath: '',
-    host: 'localhost',
-    port: 7777,
-  };
-}
-
-// Types for chat state
-type ChatState = 'prompt' | 'loading' | 'diff' | 'applying' | 'complete' | 'error';
-
-interface ChatMessage {
-  id: string;
-  type: 'user' | 'system' | 'error';
-  content: string;
-  timestamp: number;
-  taggedElement?: {
-    tagName: string;
-    className?: string;
-    id?: string;
-    componentName?: string;
-    sourceFile?: string;
-    componentPath?: string[];
-  };
-}
-
-interface DiffPreview {
-  file: string;
-  before: string;
-  after: string;
-  diffId: string;
-  action?: CodeChangeAction;
-}
-
-// Simple ID generator (crypto.randomUUID not available in browser without polyfill)
+// Simple ID generator
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-class PixelCode {
-  private config: PixelCodeConfig;
+interface QuickEditInstance {
+  id: string;
+  targetElement: HTMLElement;
+  elementInfo: ElementInfo;
+  frameworkContext?: FrameworkContext;
+  container: HTMLElement;
+  shadowRoot: ShadowRoot;
+  state: 'prompt' | 'loading' | 'changes';
+  diffs?: DiffPreview[];
+  statusMessage?: string;
+}
+
+class InsyClient {
   private ws: WebSocketClient;
   private selector: ElementSelector;
-  private isActive = false;
   private isConnected = false;
-  private currentElementId: string | null = null;
-  private uiContainer: HTMLDivElement;
-  private uiShadowRoot: ShadowRoot;
-  private widgetContainer: HTMLDivElement;
-  private widgetShadowRoot: ShadowRoot;
+  private isSelectorActive = false;
+  private quickEditInstances = new Map<string, QuickEditInstance>();
   private buttonContainer: HTMLDivElement | null = null;
   private buttonShadowRoot: ShadowRoot | null = null;
-  private widgetExpanded = false;
-  private widgetPosition = { x: 20, y: 20 };
-  private recentEdits: RecentEdit[] = [];
-  
-  // Chat panel state
-  private chatState: ChatState = 'prompt';
-  private chatMessages: ChatMessage[] = [];
-  private currentDiff: DiffPreview | null = null;
-  private currentDiffs: DiffPreview[] = [];  // Multiple diffs support
-  private diffSummary: string = '';  // Summary of all changes
-  private currentDiffFile: string = '';
-  private statusMessage: string = '';
-  private statusProgress: number = 0;
-  private selectedElementInfo: ElementInfo | null = null;
-  private selectedElementContext: FrameworkContext | null = null;
-  
-  // Session ID for opencode - unique per chat conversation
-  private chatSessionId: string = generateId();
+  private readonly MAX_INSTANCES = 5;
   
   // Tool & Model state
   private availableTools: ToolInfo[] = [];
   private selectedTool: string = '';
   private availableModels: ModelInfo[] = [];
   private selectedModel: string = '';
+  private projectPath: string = '';
 
   constructor() {
-    // Load config from injected global
-    this.config = getConfig();
-    console.log('[PixelCode] Config loaded:', this.config);
+    // Get config from injected global or use defaults
+    const config = (window as any).__PIXELCODE_CONFIG__ || {};
+    const host = config.host || 'localhost';
+    const port = config.port || 7777;
+    const wsUrl = `ws://${host}:${port}`;
     
-    // Load preferences
-    const prefs = PreferencesStore.getWidgetPreferences();
-    this.widgetPosition = prefs.position;
-    this.widgetExpanded = prefs.expanded;
-    this.recentEdits = PreferencesStore.getRecentEdits();
-    
-    // Load user selections (model, tool)
-    const userSelections = PreferencesStore.getUserSelections();
-    if (userSelections.selectedTool) {
-      this.selectedTool = userSelections.selectedTool;
-    }
-    if (userSelections.selectedModel) {
-      this.selectedModel = userSelections.selectedModel;
-    }
-
-    // Create UI container with Shadow DOM for style isolation
-    const uiHost = document.createElement('div');
-    uiHost.setAttribute('data-pixelcode', 'true');
-    uiHost.id = 'pixelcode-ui';
-    document.body.appendChild(uiHost);
-    this.uiShadowRoot = uiHost.attachShadow({ mode: 'open' });
-    this.uiContainer = document.createElement('div');
-    this.uiContainer.id = 'pixelcode-ui-root';
-    this.uiShadowRoot.appendChild(this.createBaseStyles());
-    this.uiShadowRoot.appendChild(this.uiContainer);
-
-    // Create widget container with Shadow DOM for style isolation
-    const widgetHost = document.createElement('div');
-    widgetHost.setAttribute('data-pixelcode', 'true');
-    widgetHost.id = 'pixelcode-widget';
-    document.body.appendChild(widgetHost);
-    this.widgetShadowRoot = widgetHost.attachShadow({ mode: 'open' });
-    this.widgetContainer = document.createElement('div');
-    this.widgetContainer.id = 'pixelcode-widget-root';
-    this.widgetShadowRoot.appendChild(this.createBaseStyles());
-    this.widgetShadowRoot.appendChild(this.widgetContainer);
-
-    // Initialize WebSocket using config
-    const wsUrl = this.getWebSocketUrl();
     this.ws = new WebSocketClient(wsUrl);
-    
-    // Initialize selector
     this.selector = new ElementSelector();
-
-    // Setup message handlers
+    
+    // Get project path from config
+    this.projectPath = config.projectPath || '';
+    
     this.setupMessageHandlers();
-
-    // Setup keyboard shortcut
     this.setupKeyboardShortcut();
-
-    // Render widget immediately
-    this.renderWidget();
-  }
-
-  private getWebSocketUrl(): string {
-    const { host, port } = this.config;
-    return `ws://${host}:${port}`;
+    
+    console.log(`[Insy] Connecting to ${wsUrl}`);
   }
 
   async init(): Promise<void> {
     try {
       await this.ws.connect();
       this.isConnected = true;
-      this.renderWidget(); // Update widget with connection status
-      this.showToast('PixelCode connected! Click the button or press ⌘+Shift+E', 'success');
+      this.renderButton();
+      this.requestTools();
+      console.log('✅ Insy connected');
     } catch (error) {
-      console.error('[PixelCode] Failed to connect:', error);
+      console.error('❌ Failed to connect:', error);
       this.isConnected = false;
-      this.renderWidget();
-      this.showToast('Failed to connect to PixelCode server', 'error');
+      this.renderButton();
     }
   }
 
   private setupKeyboardShortcut(): void {
     document.addEventListener('keydown', (e) => {
-      // Cmd/Ctrl + Shift + E (E for Edit)
-      // Using E instead of P to avoid browser command palette conflicts
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === 'e') {
+      // Use Alt+Q for element selection (less likely to conflict)
+      if (e.altKey && e.key === 'q' && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
         e.preventDefault();
-        e.stopPropagation();
-        this.toggle();
+        this.toggleQuickEdit();
       }
     });
   }
 
   private setupMessageHandlers(): void {
-    this.ws.on((message) => {
-      switch (message.type) {
+    this.ws.on((message: Message) => {
+      const { type, payload } = message;
+
+      switch (type) {
         case 'status:update':
-          this.handleStatusUpdate(message.payload as StatusUpdatePayload);
+          this.handleStatusUpdate(payload as StatusUpdatePayload);
           break;
         case 'diff:generated':
-          this.handleDiffGenerated(message.payload as DiffGeneratedPayload);
+          this.handleDiffGenerated(payload as DiffGeneratedPayload);
           break;
         case 'multi_diff:generated':
-          this.handleMultiDiffGenerated(message.payload as MultiDiffGeneratedPayload);
+          this.handleMultiDiffGenerated(payload as MultiDiffGeneratedPayload);
           break;
         case 'diff:applied':
-          this.handleDiffApplied();
+          this.handleDiffApplied(payload as DiffAppliedPayload);
           break;
-        case 'error':
-          this.handleError(message.payload as ErrorPayload);
+        case 'diff:undone':
+          this.handleDiffUndone(payload as { diffId: string; success: boolean });
           break;
         case 'tools:list:response':
-          this.handleToolsList(message.payload as ToolsListPayload);
+          this.handleToolsList(payload as ToolsListPayload);
           break;
         case 'models:list:response':
-          this.handleModelsList(message.payload as ModelsListPayload);
+          this.handleModelsList(payload as ModelsListPayload);
           break;
       }
     });
   }
 
-  private toggle(): void {
-    if (this.isActive) {
-      this.deactivate();
-    } else {
-      this.activate();
-    }
-  }
+  private handleStatusUpdate(payload: StatusUpdatePayload): void {
+    const { instanceId, stage, message: statusMessage } = payload;
+    if (!instanceId) return;
 
-  private activate(multiSelect: boolean = false): void {
-    this.isActive = true;
-    // Keep widget visible while selecting
+    const instance = this.quickEditInstances.get(instanceId);
+    if (!instance) return;
+
+    instance.statusMessage = statusMessage;
+    if (stage === 'ai_processing' || stage === 'generating_diff') {
+      instance.state = 'loading';
+    }
     
-    if (multiSelect) {
-      this.selector.activate(
-        (element, info) => {
-          this.handleElementSelect(element, info);
-        },
-        {
-          multiSelect: true,
-          onMultiSelect: (elements) => {
-            this.handleMultiElementSelect(elements);
-          }
-        }
-      );
-      this.renderWidget();
-      this.showToast('Multi-select mode: Click elements, press Enter when done', 'info');
-    } else {
-      this.selector.activate((element, info) => {
-        this.handleElementSelect(element, info);
-      });
-      this.renderWidget();
-      this.showToast('Select an element to modify', 'info');
-    }
+    this.renderQuickEdit(instance);
   }
 
-  private deactivate(): void {
-    this.isActive = false;
-    this.selector.deactivate();
-    this.clearUI();
-    this.renderWidget();
-  }
+  private handleDiffGenerated(payload: DiffGeneratedPayload): void {
+    const { instanceId, diffId, file, preview } = payload;
+    if (!instanceId) return;
 
-  private handleElementSelect(element: HTMLElement, info: ElementInfo): void {
-    // Detect framework
-    const framework = detectFramework();
-    const frameworkContext = captureFrameworkContext(element, framework);
-    const sourceHints = extractSourceHints(element);
+    const instance = this.quickEditInstances.get(instanceId);
+    if (!instance) return;
 
-    // Create element context
-    const context: ElementContext = {
-      element: info,
-      framework,
-      frameworkContext,
-      sourceHints,
+    const diffPreview: DiffPreview = {
+      file,
+      before: preview.before,
+      after: preview.after,
+      diffId
     };
 
-    // Generate unique ID for this element
-    this.currentElementId = generateId();
-    this.selectedElementInfo = info;
-    this.selectedElementContext = frameworkContext || null;
-
-    // Send to server with projectPath
-    this.ws.send(
-      this.createMessage('element:select', {
-        ...context,
-        elementId: this.currentElementId,
-        projectPath: this.config.projectPath,
-      })
-    );
-    
-    // Reset only the chat state (not the messages)
-    // Note: We don't add a system message here - the element is shown as a tag in the input area
-    this.chatState = 'prompt';
-    this.currentDiff = null;
-    
-    // Request available tools
-    this.requestTools();
-
-    // Deactivate selector
-    this.selector.deactivate();
-    this.isActive = false;
-
-    // Expand widget to show chat
-    this.widgetExpanded = true;
-    this.clearUI();
-    this.renderWidget();
+    instance.state = 'changes';
+    instance.diffs = [diffPreview];
+    this.renderQuickEdit(instance);
   }
 
-  private handleMultiElementSelect(elements: Array<{ element: HTMLElement; info: ElementInfo }>): void {
-    if (elements.length === 0) return;
+  private handleMultiDiffGenerated(payload: MultiDiffGeneratedPayload): void {
+    const { instanceId, diffs } = payload;
+    if (!instanceId) return;
 
-    // Detect framework (assuming all elements are from the same framework)
-    const framework = detectFramework();
-    
-    // Create context for each element
-    const contexts: ElementContext[] = elements.map(({ element, info }) => {
-      const frameworkContext = captureFrameworkContext(element, framework);
-      const sourceHints = extractSourceHints(element);
-      
-      return {
-        element: info,
-        framework,
-        frameworkContext,
-        sourceHints,
-      };
-    });
+    const instance = this.quickEditInstances.get(instanceId);
+    if (!instance) return;
 
-    // Generate unique ID for this multi-select operation
-    this.currentElementId = generateId();
-
-    // Send all elements to server with projectPath
-    this.ws.send(
-      this.createMessage('elements:select', {
-        elements: contexts,
-        elementId: this.currentElementId,
-        projectPath: this.config.projectPath,
-      })
-    );
-
-    // Reset chat state and show chat panel
-    this.chatState = 'prompt';
-    this.chatMessages = [];
-    this.currentDiff = null;
-    
-    // Request available tools when opening chat panel
-    this.requestTools();
-    
-    // Expand widget to show chat
-    this.widgetExpanded = true;
-    this.renderWidget();
-
-    // Deactivate selector but stay in active mode
-    this.selector.deactivate();
-    this.isActive = false;
-    
-    this.showToast(`${elements.length} elements selected`, 'success');
-  }
-
-  private handleRetry(): void {
-    // Reset to prompt state so user can try again
-    this.chatState = 'prompt';
-    this.statusMessage = '';
-    this.statusProgress = 0;
-    this.renderWidget();
-  }
-
-  private closeChatPanel(): void {
-    this.clearUI();
-    this.currentElementId = null;
-    this.chatMessages = [];
-    this.currentDiff = null;
-    this.currentDiffs = [];
-    this.diffSummary = '';
-    this.chatState = 'prompt';
-    this.selectedElementInfo = null;
-    this.renderWidget();
-  }
-
-  private handleNewChat(): void {
-    // Clear conversation but keep the widget open
-    this.chatMessages = [];
-    this.currentDiff = null;
-    this.currentDiffs = [];
-    this.diffSummary = '';
-    this.chatState = 'prompt';
-    this.currentElementId = null;
-    this.selectedElementInfo = null;
-    this.selectedElementContext = null;
-    this.statusMessage = '';
-    this.statusProgress = 0;
-    // Generate a new session ID for the new chat
-    this.chatSessionId = generateId();
-    this.renderWidget();
-  }
-
-  private handleClearElement(): void {
-    // Clear only the selected element, keep the conversation
-    this.selectedElementInfo = null;
-    this.selectedElementContext = null;
-    this.currentElementId = null;
-    this.renderWidget();
-  }
-
-  private handlePromptSubmit(prompt: string): void {
-    // Add user message to chat with tagged element if present
-    const userMessage: ChatMessage = {
-      id: generateId(),
-      type: 'user',
-      content: prompt,
-      timestamp: Date.now(),
-    };
-    
-    // Tag the current element to this message with full context
-    if (this.selectedElementInfo) {
-      const reactContext = this.selectedElementContext as ReactContext | null;
-      userMessage.taggedElement = {
-        tagName: this.selectedElementInfo.tagName,
-        className: this.selectedElementInfo.className || undefined,
-        id: this.selectedElementInfo.id || undefined,
-        componentName: reactContext?.componentName,
-        sourceFile: reactContext?.source?.fileName,
-        componentPath: reactContext?.fiberPath,
-      };
-    }
-    
-    this.chatMessages.push(userMessage);
-    
-    // If no element is selected, we still allow sending the message
-    // The server can handle context-less prompts
-    if (!this.currentElementId) {
-      // Generate a temporary ID for messages without element context
-      this.currentElementId = generateId();
-    }
-
-    // Update state to loading
-    this.chatState = 'loading';
-    this.statusMessage = 'Sending request...';
-    this.statusProgress = 0;
-    this.renderWidget();
-
-    // Build conversation history from chat messages
-    const conversationHistory: ConversationMessage[] = this.chatMessages.map(msg => ({
-      role: msg.type === 'user' ? 'user' as const : 
-            msg.type === 'system' ? 'assistant' as const : 
-            'assistant' as const,
-      content: msg.content,
-      taggedElement: msg.taggedElement,
+    const diffPreviews: DiffPreview[] = diffs.map(d => ({
+      file: d.file,
+      before: d.preview.before,
+      after: d.preview.after,
+      diffId: d.diffId,
+      action: d.action
     }));
 
-    this.ws.send(
-      this.createMessage('prompt:submit', {
-        elementId: this.currentElementId,
-        prompt,
-        mode: 'preview',
-        tool: this.selectedTool || undefined,
-        model: this.selectedModel || undefined,
-        sessionId: this.chatSessionId,
-        conversationHistory,
-        projectPath: this.config.projectPath,
-      })
+    instance.state = 'changes';
+    instance.diffs = diffPreviews;
+    this.renderQuickEdit(instance);
+  }
+
+  private handleDiffApplied(payload: DiffAppliedPayload): void {
+    const { success, file } = payload;
+    if (success) {
+      console.log(`✅ Applied changes to ${file}`);
+    } else {
+      console.error(`❌ Failed to apply changes to ${file}`);
+    }
+  }
+
+  private handleDiffUndone(payload: { diffId: string; success: boolean }): void {
+    if (payload.success) {
+      console.log(`↩️ Undid changes for diff ${payload.diffId}`);
+    } else {
+      console.error(`❌ Failed to undo changes for diff ${payload.diffId}`);
+    }
+  }
+
+  private toggleQuickEdit(): void {
+    if (this.isSelectorActive) {
+      // Deactivate selector
+      this.selector.deactivate();
+      this.isSelectorActive = false;
+      this.renderButton();
+    } else {
+      // Activate selector
+      this.launchQuickEdit();
+    }
+  }
+
+  private launchQuickEdit(): void {
+    if (this.quickEditInstances.size >= this.MAX_INSTANCES) {
+      console.warn(`Maximum ${this.MAX_INSTANCES} QuickEdit instances reached`);
+      return;
+    }
+
+    this.isSelectorActive = true;
+    this.renderButton();
+
+    this.selector.activate((element, info) => {
+      this.isSelectorActive = false;
+      this.renderButton();
+      this.createQuickEditInstance(element, info);
+    });
+  }
+
+  private createQuickEditInstance(targetElement: HTMLElement, elementInfo: ElementInfo): void {
+    const instanceId = generateId();
+    
+    // Get framework context
+    const framework = detectFramework();
+    const frameworkContext = captureFrameworkContext(targetElement, framework);
+    const sourceHints = extractSourceHints(targetElement);
+
+    // Send element:select message to server
+    const elementContext: ElementContext = {
+      element: elementInfo,
+      framework,
+      frameworkContext,
+      sourceHints
+    };
+
+    this.ws.send(this.createMessage('element:select', {
+      ...elementContext,
+      elementId: instanceId,
+      projectPath: this.projectPath
+    }));
+
+    // Calculate position
+    const rect = targetElement.getBoundingClientRect();
+    let top = rect.bottom + window.scrollY + 8;
+    let left = rect.left + window.scrollX;
+
+    if (left + 300 > window.innerWidth) {
+      left = window.innerWidth - 300 - 16;
+    }
+
+    // Create container with shadow DOM
+    const host = document.createElement('div');
+    host.id = `insy-qe-${instanceId}`;
+    host.setAttribute('data-insy', 'true');
+    host.style.position = 'absolute';
+    host.style.top = `${top}px`;
+    host.style.left = `${left}px`;
+    host.style.zIndex = '999996';
+    document.body.appendChild(host);
+
+    const shadowRoot = host.attachShadow({ mode: 'open' });
+    const container = document.createElement('div');
+    shadowRoot.appendChild(this.createBaseStyles());
+    shadowRoot.appendChild(container);
+
+    // Create instance
+    const instance: QuickEditInstance = {
+      id: instanceId,
+      targetElement,
+      elementInfo,
+      frameworkContext,
+      container: host,
+      shadowRoot,
+      state: 'prompt',
+      diffs: undefined,
+      statusMessage: undefined
+    };
+
+    this.quickEditInstances.set(instanceId, instance);
+    this.renderQuickEdit(instance);
+
+    // Setup scroll tracking
+    if (this.quickEditInstances.size === 1) {
+      this.setupScrollTracking();
+    }
+  }
+
+  private renderQuickEdit(instance: QuickEditInstance): void {
+    const container = instance.shadowRoot.querySelector('div');
+    if (!container) return;
+
+    render(
+      h(QuickEdit, {
+        instanceId: instance.id,
+        targetElement: instance.targetElement,
+        elementInfo: instance.elementInfo,
+        frameworkContext: instance.frameworkContext,
+        state: instance.state,
+        statusMessage: instance.statusMessage,
+        diffs: instance.diffs,
+        models: this.availableModels,
+        selectedModel: this.selectedModel,
+        onModelChange: (modelId) => {
+          this.handleModelChange(modelId);
+        },
+        onSubmit: (instanceId: string, prompt: string) => {
+          this.handlePromptSubmit(instanceId, prompt);
+        },
+        onClose: () => {
+          this.destroyQuickEditInstance(instance.id);
+        },
+        onCompact: () => {
+          // Handled by component
+        },
+        onToggleChanges: (instanceId: string, diffIds: string[], apply: boolean) => {
+          this.handleToggleChanges(instanceId, diffIds, apply);
+        },
+        onAcceptChanges: (instanceId: string, diffIds: string[]) => {
+          this.handleAcceptChanges(instanceId, diffIds);
+        },
+        onRejectChanges: (instanceId: string) => {
+          this.handleRejectChanges(instanceId);
+        }
+      }),
+      container
     );
   }
 
-  private handleToolsList(payload: ToolsListPayload): void {
-    this.availableTools = payload.tools;
-    
-    // Check if saved tool is still available, otherwise select first
-    const savedToolAvailable = this.selectedTool && 
-      payload.tools.some(t => t.identifier === this.selectedTool);
-    
-    if (!savedToolAvailable && payload.tools.length > 0) {
-      this.selectedTool = payload.tools[0].identifier;
-      PreferencesStore.setSelectedTool(this.selectedTool);
-    }
-    
-    // Request models for the selected tool
-    if (this.selectedTool) {
-      this.requestModels(this.selectedTool);
-    }
-    
-    this.renderWidget();
-    this.renderWidget();
+  private handlePromptSubmit(instanceId: string, prompt: string): void {
+    const instance = this.quickEditInstances.get(instanceId);
+    if (!instance) return;
+
+    instance.state = 'loading';
+    instance.statusMessage = 'Sending request...';
+    this.renderQuickEdit(instance);
+
+    this.ws.send(this.createMessage('prompt:submit', {
+      elementId: instanceId,
+      prompt,
+      mode: 'preview',
+      tool: this.selectedTool || undefined,
+      model: this.selectedModel || undefined,
+      sessionId: instanceId,
+      conversationHistory: [],
+      projectPath: this.projectPath,
+      instanceId
+    }));
   }
 
-  private handleModelsList(payload: ModelsListPayload): void {
-    this.availableModels = payload.models;
-    
-    // Check if saved model is still available, otherwise select first
-    const savedModelAvailable = this.selectedModel && 
-      payload.models.some(m => m.id === this.selectedModel);
-    
-    if (!savedModelAvailable && payload.models.length > 0) {
-      this.selectedModel = payload.models[0].id;
-      PreferencesStore.setSelectedModel(this.selectedModel);
+  private handleToggleChanges(instanceId: string, diffIds: string[], apply: boolean): void {
+    const instance = this.quickEditInstances.get(instanceId);
+    if (!instance || !instance.diffs) return;
+
+    if (apply) {
+      // Apply changes - this creates backups automatically
+      diffIds.forEach(diffId => {
+        this.ws.send(this.createMessage('diff:approve', {
+          diffId: diffId,
+          action: 'apply'
+        }));
+      });
+      
+      console.log('👁️ Applied changes (backup created)');
+    } else {
+      // Undo changes - restore from backup
+      diffIds.forEach(diffId => {
+        this.ws.send(this.createMessage('diff:undo', {
+          diffId: diffId
+        }));
+      });
+      
+      console.log('👁️ Undoing changes (restoring from backup)');
     }
-    
-    this.renderWidget();
-    this.renderWidget();
+  }
+
+  private handleAcceptChanges(instanceId: string, diffIds: string[]): void {
+    const instance = this.quickEditInstances.get(instanceId);
+    if (!instance || !instance.diffs) return;
+
+    // Send approval for each diff ID provided
+    diffIds.forEach(diffId => {
+      this.ws.send(this.createMessage('diff:approve', {
+        diffId: diffId,
+        action: 'apply'
+      }));
+    });
+
+    // Don't destroy immediately - let page refresh handle cleanup
+    // or user can continue editing
+  }
+
+  private handleRejectChanges(instanceId: string): void {
+    const instance = this.quickEditInstances.get(instanceId);
+    if (!instance || !instance.diffs) return;
+
+    // Send rejection for each diff ID
+    instance.diffs.forEach(diff => {
+      this.ws.send(this.createMessage('diff:approve', {
+        diffId: diff.diffId,
+        action: 'reject'
+      }));
+    });
+
+    this.destroyQuickEditInstance(instanceId);
+  }
+
+  private destroyQuickEditInstance(instanceId: string): void {
+    const instance = this.quickEditInstances.get(instanceId);
+    if (!instance) return;
+
+    instance.container.remove();
+    this.quickEditInstances.delete(instanceId);
+
+    if (this.quickEditInstances.size === 0) {
+      this.removeScrollTracking();
+    }
+  }
+
+  private scrollHandler: (() => void) | null = null;
+
+  private setupScrollTracking(): void {
+    if (this.scrollHandler) return;
+
+    this.scrollHandler = () => {
+      this.quickEditInstances.forEach(instance => {
+        const rect = instance.targetElement.getBoundingClientRect();
+        let top = rect.bottom + window.scrollY + 8;
+        let left = rect.left + window.scrollX;
+
+        if (left + 300 > window.innerWidth) {
+          left = window.innerWidth - 300 - 16;
+        }
+
+        instance.container.style.top = `${top}px`;
+        instance.container.style.left = `${left}px`;
+      });
+    };
+
+    window.addEventListener('scroll', this.scrollHandler, true);
+    window.addEventListener('resize', this.scrollHandler);
+  }
+
+  private removeScrollTracking(): void {
+    if (!this.scrollHandler) return;
+
+    window.removeEventListener('scroll', this.scrollHandler, true);
+    window.removeEventListener('resize', this.scrollHandler);
+    this.scrollHandler = null;
+  }
+
+  private createMessage(type: string, payload: any): Message {
+    return {
+      id: generateId(),
+      type,
+      payload,
+      timestamp: Date.now()
+    };
   }
 
   private requestTools(): void {
@@ -524,438 +475,84 @@ class PixelCode {
     this.ws.send(this.createMessage('models:list', { tool: toolIdentifier }));
   }
 
-  private handleToolChange(toolIdentifier: string): void {
-    this.selectedTool = toolIdentifier;
-    this.selectedModel = ''; // Reset model when tool changes
-    this.availableModels = []; // Clear models
-    PreferencesStore.setSelectedTool(toolIdentifier);
-    this.requestModels(toolIdentifier);
-    this.renderWidget();
+  private handleToolsList(payload: ToolsListPayload): void {
+    this.availableTools = payload.tools;
+    
+    if (!this.selectedTool && payload.tools.length > 0) {
+      this.selectedTool = payload.tools[0].identifier;
+      this.requestModels(this.selectedTool);
+    }
+  }
+
+  private handleModelsList(payload: ModelsListPayload): void {
+    this.availableModels = payload.models;
+    
+    if (!this.selectedModel && payload.models.length > 0) {
+      this.selectedModel = payload.models[0].id;
+    }
   }
 
   private handleModelChange(modelId: string): void {
     this.selectedModel = modelId;
-    PreferencesStore.setSelectedModel(modelId);
-    this.renderWidget();
-  }
-
-  private handleStatusUpdate(payload: StatusUpdatePayload): void {
-    // Don't override diff state with status updates
-    if (this.chatState === 'diff' || this.chatState === 'applying' || this.chatState === 'complete') {
-      return;
-    }
-    
-    this.statusMessage = payload.message;
-    this.statusProgress = payload.progress || 0;
-    this.chatState = 'loading';
-    this.renderWidget();
-    this.renderWidget();
-  }
-
-  private handleDiffGenerated(payload: DiffGeneratedPayload): void {
-    // Add system message
-    this.chatMessages.push({
-      id: generateId(),
-      type: 'system',
-      content: `Changes ready for ${payload.file.split(/[/\\]/).pop() || payload.file}`,
-      timestamp: Date.now(),
+    // Re-render all instances with new model
+    this.quickEditInstances.forEach(instance => {
+      this.renderQuickEdit(instance);
     });
-
-    // Store diff for preview
-    this.currentDiff = {
-      file: payload.file,
-      before: payload.preview.before,
-      after: payload.preview.after,
-      diffId: payload.diffId,
-    };
-    this.currentDiffs = [this.currentDiff];
-    this.currentDiffFile = payload.file;
-
-    // Update state to show diff
-    this.chatState = 'diff';
-    this.renderWidget();
   }
 
-  private handleMultiDiffGenerated(payload: MultiDiffGeneratedPayload): void {
-    // Store summary
-    this.diffSummary = payload.summary || '';
-    
-    // Add system message with summary
-    const fileCount = payload.diffs.length;
-    const message = payload.summary 
-      ? `${payload.summary} (${fileCount} file${fileCount > 1 ? 's' : ''})`
-      : `Changes ready for ${fileCount} file${fileCount > 1 ? 's' : ''}`;
-    
-    this.chatMessages.push({
-      id: generateId(),
-      type: 'system',
-      content: message,
-      timestamp: Date.now(),
-    });
-
-    // Store all diffs for preview
-    this.currentDiffs = payload.diffs.map(d => ({
-      file: d.file,
-      before: d.preview.before,
-      after: d.preview.after,
-      diffId: d.diffId,
-      action: d.action,
-    }));
-    
-    // Set current diff to first one for compatibility
-    if (this.currentDiffs.length > 0) {
-      this.currentDiff = this.currentDiffs[0];
-      this.currentDiffFile = this.currentDiffs[0].file;
-    }
-
-    // Update state to show diff
-    this.chatState = 'diff';
-    this.renderWidget();
-  }
-
-  private handleDiffApprove(diffId: string): void {
-    if (!diffId) return;
-    
-    this.chatState = 'applying';
-    this.renderWidget();
-
-    this.ws.send(
-      this.createMessage('diff:approve', {
-        diffId,
-        action: 'apply',
-      })
-    );
-  }
-
-  private handleDiffReject(diffId: string): void {
-    if (!diffId) return;
-    
-    this.ws.send(
-      this.createMessage('diff:approve', {
-        diffId,
-        action: 'reject',
-      })
-    );
-
-    // Remove the rejected diff from the list
-    this.currentDiffs = this.currentDiffs.filter(d => d.diffId !== diffId);
-    
-    if (this.currentDiffs.length > 0) {
-      // Still have diffs to review
-      this.currentDiff = this.currentDiffs[0];
-      this.renderWidget();
-    } else {
-      // All diffs rejected, reset to prompt state
-      this.chatMessages.push({
-        id: generateId(),
-        type: 'system',
-        content: 'Changes rejected. What else would you like to change?',
-        timestamp: Date.now(),
-      });
-      this.currentDiff = null;
-      this.chatState = 'prompt';
-      this.renderWidget();
-    }
-  }
-
-  private handleApplyAllDiffs(): void {
-    // Apply all pending diffs
-    for (const diff of this.currentDiffs) {
-      this.ws.send(
-        this.createMessage('diff:approve', {
-          diffId: diff.diffId,
-          action: 'apply',
-        })
-      );
-    }
-    
-    this.chatState = 'applying';
-    this.renderWidget();
-  }
-
-  private handleRejectAllDiffs(): void {
-    // Reject all pending diffs
-    for (const diff of this.currentDiffs) {
-      this.ws.send(
-        this.createMessage('diff:approve', {
-          diffId: diff.diffId,
-          action: 'reject',
-        })
-      );
-    }
-    
-    // Reset state
-    this.chatMessages.push({
-      id: generateId(),
-      type: 'system',
-      content: 'All changes rejected. What else would you like to change?',
-      timestamp: Date.now(),
-    });
-    this.currentDiffs = [];
-    this.currentDiff = null;
-    this.chatState = 'prompt';
-    this.renderWidget();
-  }
-
-  private handleDiffApplied(): void {
-    // Add success message
-    this.chatMessages.push({
-      id: generateId(),
-      type: 'system',
-      content: '✓ Changes applied successfully!',
-      timestamp: Date.now(),
-    });
-    
-    // Go back to prompt state so user can continue the conversation
-    this.chatState = 'prompt';
-    this.currentDiff = null;
-    this.currentDiffs = [];
-    this.renderWidget();
-    
-    this.showToast('Changes applied successfully!', 'success');
-    
-    // Add to recent edits
-    if (this.currentElementId && this.currentDiffFile) {
-      const edit: RecentEdit = {
-        id: generateId(),
-        file: this.currentDiffFile,
-        timestamp: Date.now(),
-        description: 'Updated component',
-      };
-      this.recentEdits.unshift(edit);
-      if (this.recentEdits.length > 10) this.recentEdits.pop();
-      PreferencesStore.addRecentEdit(edit);
-      this.renderWidget();
-    }
-  }
-
-  private handleError(payload: ErrorPayload): void {
-    // Add error message to chat
-    this.chatMessages.push({
-      id: generateId(),
-      type: 'error',
-      content: payload.message,
-      timestamp: Date.now(),
-    });
-    
-    // Set state to error temporarily, then back to prompt
-    this.chatState = 'error';
-    this.currentDiff = null;
-    this.statusMessage = payload.message;
-    this.statusProgress = 0;
-    this.renderWidget();
-    
-    // Show toast for visibility
-    this.showToast(payload.message, 'error');
-  }
-
-  private showToast(message: string, variant: 'info' | 'success' | 'error' | 'warning'): void {
-    // Create toast container with Shadow DOM
-    const host = document.createElement('div');
-    host.setAttribute('data-pixelcode', 'true');
-    document.body.appendChild(host);
-    const shadow = host.attachShadow({ mode: 'open' });
-    const container = document.createElement('div');
-    shadow.appendChild(this.createBaseStyles());
-    shadow.appendChild(container);
-
-    render(
-      <Toast
-        message={message}
-        variant={variant}
-        onClose={() => {
-          host.remove();
-        }}
-      />,
-      container
-    );
-
-    setTimeout(() => {
-      host.remove();
-    }, 5000);
-  }
-
-  private clearUI(): void {
-    render(null, this.uiContainer);
-  }
-
-  /** Creates base styles for Shadow DOM to reset and isolate styles */
-  private createBaseStyles(): HTMLStyleElement {
-    const style = document.createElement('style');
-    style.textContent = `
-      /* Reset all inherited styles */
-      :host {
-        all: initial;
-        font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        font-size: 14px;
-        line-height: 1.5;
-        color: #fff;
-        -webkit-font-smoothing: antialiased;
-        -moz-osx-font-smoothing: grayscale;
-      }
-      
-      /* Reset all elements inside */
-      *, *::before, *::after {
-        box-sizing: border-box;
-        margin: 0;
-        padding: 0;
-        border: 0;
-        font: inherit;
-        vertical-align: baseline;
-      }
-      
-      /* Keyframe animations */
-      @keyframes spin {
-        from { transform: rotate(0deg); }
-        to { transform: rotate(360deg); }
-      }
-      
-      @keyframes fadeIn {
-        from { opacity: 0; transform: translateY(-10px); }
-        to { opacity: 1; transform: translateY(0); }
-      }
-      
-      @keyframes slideIn {
-        from { opacity: 0; transform: translateX(20px); }
-        to { opacity: 1; transform: translateX(0); }
-      }
-      
-      @keyframes slideUp {
-        from { opacity: 0; transform: translateY(10px); }
-        to { opacity: 1; transform: translateY(0); }
-      }
-      
-      @keyframes pulse {
-        0%, 100% { box-shadow: 0 8px 24px rgba(59, 130, 246, 0.4); }
-        50% { box-shadow: 0 8px 32px rgba(59, 130, 246, 0.6); }
-      }
-      
-      /* Base element styles */
-      button {
-        cursor: pointer;
-        background: none;
-        border: none;
-        font-family: inherit;
-      }
-      
-      input, select, textarea {
-        font-family: inherit;
-        font-size: inherit;
-      }
-      
-      select {
-        appearance: auto;
-      }
-    `;
-    return style;
-  }
-
-  private createMessage<T>(type: string, payload: T): Message<T> {
-    return {
-      id: generateId(),
-      type,
-      payload,
-      timestamp: Date.now(),
-    };
-  }
-
-  // Widget methods
-  private renderWidget(): void {
-    if (this.widgetExpanded) {
-      render(
-        <WidgetPanel
-          connected={this.isConnected}
-          active={this.isActive}
-          onActivate={() => this.activate()}
-          onDeactivate={() => this.deactivate()}
-          onClose={() => this.toggleWidgetPanel()}
-          recentEdits={this.recentEdits}
-          position={this.widgetPosition}
-          // Chat functionality
-          onSubmitPrompt={(prompt) => this.handlePromptSubmit(prompt)}
-          messages={this.chatMessages}
-          isLoading={this.chatState === 'loading'}
-          statusMessage={this.statusMessage}
-          isSelectingElement={this.isActive}
-          models={this.availableModels}
-          selectedModel={this.selectedModel}
-          onModelChange={(model) => this.handleModelChange(model)}
-          selectedElementInfo={this.selectedElementInfo}
-          selectedElementContext={this.selectedElementContext}
-          // Diff functionality
-          showDiff={this.chatState === 'diff'}
-          diffs={this.currentDiffs}
-          onApplyDiff={(diffId) => this.handleDiffApprove(diffId || this.currentDiff?.diffId || '')}
-          onRejectDiff={(diffId) => this.handleDiffReject(diffId || this.currentDiff?.diffId || '')}
-          onApplyAllDiffs={() => this.handleApplyAllDiffs()}
-          onRejectAllDiffs={() => this.handleRejectAllDiffs()}
-          onNewChat={() => this.handleNewChat()}
-          onClearElement={() => this.handleClearElement()}
-        />,
-        this.widgetContainer
-      );
-    } else {
-      render(null, this.widgetContainer);
-    }
-
-    // Always render button (in a Shadow DOM container for style isolation)
+  private renderButton(): void {
     if (!this.buttonContainer) {
-      const buttonHost = document.createElement('div');
-      buttonHost.id = 'pixelcode-button-host';
-      buttonHost.setAttribute('data-pixelcode', 'true');
-      document.body.appendChild(buttonHost);
-      this.buttonShadowRoot = buttonHost.attachShadow({ mode: 'open' });
+      const host = document.createElement('div');
+      host.id = 'insy-button';
+      host.setAttribute('data-insy', 'true');
+      document.body.appendChild(host);
+
+      this.buttonShadowRoot = host.attachShadow({ mode: 'open' });
       this.buttonContainer = document.createElement('div');
-      this.buttonContainer.id = 'pixelcode-button-container';
       this.buttonShadowRoot.appendChild(this.createBaseStyles());
       this.buttonShadowRoot.appendChild(this.buttonContainer);
     }
 
     render(
-      <WidgetButton
-        connected={this.isConnected}
-        active={this.isActive}
-        onClick={() => this.handleWidgetButtonClick()}
-        position={this.widgetPosition}
-        onPositionChange={(pos) => this.handleWidgetPositionChange(pos)}
-      />,
+      h(WidgetButton, {
+        connected: this.isConnected,
+        active: this.isSelectorActive,
+        onClick: () => {
+          this.toggleQuickEdit();
+        },
+        position: { x: 20, y: 20 },
+      }),
       this.buttonContainer
     );
   }
 
-  private handleWidgetButtonClick(): void {
-    if (this.isActive) {
-      this.deactivate();
-    } else {
-      this.toggleWidgetPanel();
-    }
+  private createBaseStyles(): HTMLStyleElement {
+    const style = document.createElement('style');
+    style.textContent = `
+      * {
+        box-sizing: border-box;
+      }
+      :host {
+        all: initial;
+      }
+    `;
+    return style;
   }
 
-  private toggleWidgetPanel(): void {
-    this.widgetExpanded = !this.widgetExpanded;
-    PreferencesStore.setWidgetPreferences({ expanded: this.widgetExpanded });
-    this.renderWidget();
-  }
 
-  private handleWidgetPositionChange(position: { x: number; y: number }): void {
-    this.widgetPosition = position;
-    PreferencesStore.setWidgetPreferences({ position });
-    this.renderWidget();
-  }
-
-  destroy(): void {
-    this.deactivate();
-    this.selector.destroy();
-    this.ws.disconnect();
-    this.uiContainer.remove();
-  }
 }
 
 // Auto-initialize
-const pixelcode = new PixelCode();
-pixelcode.init().catch(console.error);
+if (typeof window !== 'undefined') {
+  const client = new InsyClient();
+  
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => {
+      client.init();
+    });
+  } else {
+    client.init();
+  }
+}
 
-// Expose to window for manual control
-(window as any).__PIXELCODE__ = pixelcode;
-
-console.log('[PixelCode] Client loaded. Press ⌘+Shift+P (Mac) or Ctrl+Shift+P (Windows/Linux) to activate');
+export default InsyClient;

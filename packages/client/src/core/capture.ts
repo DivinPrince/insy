@@ -59,6 +59,125 @@ export function captureAllElements(): ElementInfo[] {
   return capturedElements;
 }
 
+/**
+ * Capture multiple elements with their relationships
+ * Returns array of element info with additional relationship metadata
+ */
+export async function captureMultipleElements(elements: HTMLElement[]): Promise<{
+  elements: ElementInfo[];
+  relationships: ElementRelationship[];
+  commonAncestor?: HTMLElement;
+}> {
+  const capturedElements: ElementInfo[] = [];
+  const relationships: ElementRelationship[] = [];
+
+  // Capture each element
+  for (const element of elements) {
+    const info = captureElement(element);
+    const reactContext = await extractReactContext(element);
+    if (reactContext) {
+      (info as any).reactContext = reactContext;
+    }
+    capturedElements.push(info);
+  }
+
+  // Find relationships between elements
+  for (let i = 0; i < elements.length; i++) {
+    for (let j = i + 1; j < elements.length; j++) {
+      const relationship = findRelationship(elements[i], elements[j]);
+      if (relationship) {
+        relationships.push({
+          ...relationship,
+          fromIndex: i,
+          toIndex: j,
+        });
+      }
+    }
+  }
+
+  // Find common ancestor
+  const commonAncestor = findCommonAncestor(elements);
+
+  return {
+    elements: capturedElements,
+    relationships,
+    commonAncestor,
+  };
+}
+
+interface ElementRelationship {
+  fromIndex: number;
+  toIndex: number;
+  type: 'sibling' | 'parent-child' | 'ancestor-descendant' | 'unrelated';
+  distance?: number; // DOM tree distance
+}
+
+function findRelationship(element1: HTMLElement, element2: HTMLElement): Omit<ElementRelationship, 'fromIndex' | 'toIndex'> | null {
+  // Check if siblings
+  if (element1.parentElement === element2.parentElement) {
+    return { type: 'sibling', distance: 0 };
+  }
+
+  // Check if parent-child
+  if (element1.contains(element2)) {
+    return { type: 'parent-child', distance: getDepthDistance(element1, element2) };
+  }
+  if (element2.contains(element1)) {
+    return { type: 'parent-child', distance: getDepthDistance(element2, element1) };
+  }
+
+  // Check if ancestor-descendant
+  const commonAncestor = findCommonAncestor([element1, element2]);
+  if (commonAncestor) {
+    const distance = getDepthDistance(commonAncestor, element1) + getDepthDistance(commonAncestor, element2);
+    return { type: 'ancestor-descendant', distance };
+  }
+
+  return { type: 'unrelated' };
+}
+
+function getDepthDistance(ancestor: HTMLElement, descendant: HTMLElement): number {
+  let depth = 0;
+  let current: HTMLElement | null = descendant;
+  
+  while (current && current !== ancestor) {
+    depth++;
+    current = current.parentElement;
+  }
+  
+  return depth;
+}
+
+function findCommonAncestor(elements: HTMLElement[]): HTMLElement | undefined {
+  if (elements.length === 0) return undefined;
+  if (elements.length === 1) return elements[0].parentElement || undefined;
+
+  // Get all ancestors of the first element
+  const ancestors = new Set<HTMLElement>();
+  let current: HTMLElement | null = elements[0];
+  while (current) {
+    ancestors.add(current);
+    current = current.parentElement;
+  }
+
+  // Find the first common ancestor for all other elements
+  for (const element of elements.slice(1)) {
+    let curr: HTMLElement | null = element;
+    while (curr) {
+      if (ancestors.has(curr)) {
+        // Found a common ancestor, but need to verify it's common for ALL
+        const isCommonForAll = elements.every(el => curr!.contains(el) || el === curr);
+        if (isCommonForAll) {
+          return curr;
+        }
+      }
+      curr = curr.parentElement;
+    }
+  }
+
+  return document.body;
+}
+
 export function captureElement(element: HTMLElement): ElementInfo {
   const boundingBox = captureBoundingBox(element);
   const css = captureComputedStyles(element);
@@ -265,7 +384,7 @@ function isSourceFile(fileName: string): boolean {
   return false;
 }
 
-/**
+/** 
  * Normalize a file name for display
  */
 function normalizeFileName(fileName: string): string {
@@ -490,4 +609,33 @@ export async function formatElementInfo(element: HTMLElement): Promise<string> {
   }
 
   return html;
+}
+
+/**
+ * Format multiple elements info similar to react-grab output
+ * Returns a formatted string describing the selected elements and their relationships
+ */
+export async function formatMultipleElementsInfo(elements: HTMLElement[]): Promise<string> {
+  if (elements.length === 0) return '';
+  if (elements.length === 1) return formatElementInfo(elements[0]);
+
+  const lines: string[] = [];
+  lines.push(`Selected ${elements.length} elements:`);
+  lines.push('');
+
+  for (let i = 0; i < elements.length; i++) {
+    const formatted = await formatElementInfo(elements[i]);
+    lines.push(`${i + 1}. ${formatted}`);
+  }
+
+  // Add relationship info
+  const commonAncestor = findCommonAncestor(elements);
+  if (commonAncestor && commonAncestor !== document.body) {
+    const ancestorTag = commonAncestor.tagName.toLowerCase();
+    const ancestorClass = commonAncestor.className ? `.${commonAncestor.className.split(' ')[0]}` : '';
+    lines.push('');
+    lines.push(`Common ancestor: <${ancestorTag}${ancestorClass}>`);
+  }
+
+  return lines.join('\n');
 }

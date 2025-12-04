@@ -49,6 +49,21 @@ ${conversationHistory.map(msg => {
 
   return `# PixelCode Edit Request
 
+=================================================================
+CRITICAL OUTPUT FORMAT REQUIREMENT
+=================================================================
+
+YOU MUST RESPOND IN XML FORMAT ONLY - NO EXCEPTIONS
+- DO NOT use file editing tools (write_to_file, edit_file, etc.)
+- DO NOT make direct changes to files
+- ONLY return XML with <file_changes> structure
+- See "Response Format" section below for exact format
+
+Why: The user needs to review and approve changes before they are applied.
+If you edit files directly, the user loses control and visibility.
+
+=================================================================
+
 You are helping edit a web application. The user visually selected an element in their browser and wants to modify it.
 
 ## Selected Element
@@ -74,10 +89,30 @@ ${conversationSection}
 "${context.prompt}"
 
 ## Your Task
-1. First, use your tools to find the correct source file based on the component context above
-2. Look for files containing the component name (e.g., ${componentName || relevantComponents[0] || 'the component'})
-3. Read the file to understand the current implementation
-4. Make the requested changes
+
+CRITICAL INSTRUCTIONS - READ CAREFULLY:
+
+1. DO NOT use any file editing tools (write_to_file, edit_file, replace_in_file, etc.)
+2. DO NOT make direct changes to files on disk
+3. DO NOT execute any commands or scripts
+4. ONLY return the modified code in XML format below
+
+Why: The system needs to generate a visual diff that the user can review and approve/reject. If you edit files directly, the user loses control.
+
+What you should do:
+- Use your tools to find the correct source file based on the component context above
+- Look for files containing the component name (e.g., ${componentName || relevantComponents[0] || 'the component'})
+- Read the file to understand the current implementation
+- Make the requested modifications mentally
+- Return the COMPLETE modified file content in XML format
+- The system will then generate a diff and show it to the user
+
+Code modification guidelines:
+1. Preserve the existing code structure and formatting style
+2. Only change what's necessary to fulfill the request
+3. Keep all imports, exports, and other components unchanged
+4. Maintain the same indentation style (spaces/tabs)
+5. Consider the conversation history for context
 
 ## Important Guidelines
 - Search for the component by name, not by HTML structure
@@ -89,9 +124,81 @@ ${conversationSection}
 ## Design Guidelines
 When making visual/styling changes:
 - Keep designs clean, minimal, and elegant
-- Avoid complex gradients or excessive shadows
-- Prioritize simplicity and readability
-- Use subtle colors and consistent spacing`;
+- Avoid complex gradients, excessive shadows, or overly decorative elements
+- Prioritize simplicity, readability, and whitespace
+- Use subtle colors and consistent spacing
+- Less is more - aim for a refined, professional look
+
+## Response Format
+
+=================================================================
+THIS IS THE MOST IMPORTANT PART - READ CAREFULLY
+=================================================================
+
+YOUR ENTIRE RESPONSE MUST BE:
+1. ONLY the XML structure below
+2. NO explanations before the XML
+3. NO explanations after the XML
+4. NO markdown formatting
+5. NO code blocks with backticks
+6. JUST pure XML starting with <file_changes>
+
+YOU MUST RETURN YOUR RESPONSE IN THIS EXACT XML FORMAT:
+
+Do not use tools to edit files. Do not edit files directly. Only return XML with the code changes.
+
+<file_changes>
+  <summary>Brief description of what changes were made</summary>
+  <file path="/absolute/path/to/file.tsx" action="modify" language="tsx">
+    <description>What was changed in this file</description>
+    <content><![CDATA[
+// Your complete modified code here
+// Include the ENTIRE file content, not just the changed parts
+// This is the full file after your modifications
+]]></content>
+  </file>
+</file_changes>
+
+### XML Format Rules:
+1. MANDATORY: Wrap all code in <file_changes> XML tags as shown above
+2. Always wrap file content in <![CDATA[...]]> to handle special characters
+3. The "action" attribute must be one of: "create", "modify", "delete"
+4. For "modify" actions, include the COMPLETE file content (entire file, not just changed lines)
+5. For "delete" actions, leave <content> empty
+6. You can include multiple <file> elements if changes span multiple files
+7. Always include the full absolute file path in the "path" attribute
+
+FINAL REMINDER: After using your tools to find and read the file, return ONLY the XML format above with the modified code. No explanations before or after. No file editing tools. Just pure XML with the complete modified file content inside.
+
+=================================================================
+FINAL CHECKLIST BEFORE YOU RESPOND:
+=================================================================
+
+[ ] Did I use any file editing tools? (If YES -> STOP, return XML instead)
+[ ] Did I make direct changes to files? (If YES -> STOP, return XML instead)
+[ ] Is my response PURE XML starting with <file_changes>? (Must be YES)
+[ ] Does my XML contain the COMPLETE file content? (Must be YES)
+[ ] Did I wrap code in <![CDATA[...]]>? (Must be YES)
+
+START YOUR RESPONSE NOW WITH <file_changes> - NO OTHER TEXT:
+
+Example for multiple files:
+<file_changes>
+  <summary>Added a new component and updated the main file</summary>
+  <file path="/src/components/Button.tsx" action="create" language="tsx">
+    <description>New Button component</description>
+    <content><![CDATA[
+export function Button() { return <button>Click</button>; }
+]]></content>
+  </file>
+  <file path="/src/App.tsx" action="modify" language="tsx">
+    <description>Import and use the new Button component</description>
+    <content><![CDATA[
+import { Button } from './components/Button';
+// ... rest of complete file content
+]]></content>
+  </file>
+</file_changes>`;
 }
 
 export function buildOpenCodePrompt(
@@ -123,6 +230,21 @@ ${conversationHistory.map(msg => {
 
   return `# PixelCode Edit Request
 
+=================================================================
+CRITICAL OUTPUT FORMAT REQUIREMENT
+=================================================================
+
+YOU MUST RESPOND IN XML FORMAT ONLY - NO EXCEPTIONS
+- DO NOT use file editing tools (write_to_file, edit_file, etc.)
+- DO NOT make direct changes to files
+- ONLY return XML with <file_changes> structure
+- See "Response Format" section below for exact format
+
+Why: The user needs to review and approve changes before they are applied.
+If you edit files directly, the user loses control and visibility.
+
+=================================================================
+
 You are helping edit a web application. The user visually selected an element in their browser and wants to modify it.
 
 ## Element Information
@@ -142,23 +264,54 @@ ${conversationSection}
 "${context.prompt}"
 
 ## Your Task
-Please modify the code to implement the user's request. Important guidelines:
+
+CRITICAL INSTRUCTIONS - READ CAREFULLY:
+
+1. DO NOT use any file editing tools (write_to_file, edit_file, replace_in_file, etc.)
+2. DO NOT make direct changes to files on disk
+3. DO NOT execute any commands or scripts
+4. ONLY return the modified code in XML format below
+
+Why: The system needs to generate a visual diff that the user can review and approve/reject. If you edit files directly, the user loses control.
+
+What you should do:
+- Read the current code shown above
+- Make the requested modifications mentally
+- Return the COMPLETE modified file content in XML format
+- The system will then generate a diff and show it to the user
+
+Code modification guidelines:
 1. Preserve the existing code structure and formatting style
 2. Only change what's necessary to fulfill the request
 3. Keep all imports, exports, and other components unchanged
-4. Maintain the same indentation style
-5. Consider the conversation history - the user may be asking for follow-up changes or refinements
+4. Maintain the same indentation style (spaces/tabs)
+5. Consider the conversation history for context
 
 ## Design Guidelines
-When making visual/styling changes, keep in mind:
-- Users prefer clean, minimal, and elegant designs
+When making visual/styling changes:
+- Keep designs clean, minimal, and elegant
 - Avoid complex gradients, excessive shadows, or overly decorative elements
 - Prioritize simplicity, readability, and whitespace
 - Use subtle colors and consistent spacing
 - Less is more - aim for a refined, professional look
 
 ## Response Format
-You MUST return your response in the following XML format. This is critical for the system to parse your changes correctly.
+
+=================================================================
+THIS IS THE MOST IMPORTANT PART - READ CAREFULLY
+=================================================================
+
+YOUR ENTIRE RESPONSE MUST BE:
+1. ONLY the XML structure below
+2. NO explanations before the XML
+3. NO explanations after the XML
+4. NO markdown formatting
+5. NO code blocks with backticks
+6. JUST pure XML starting with <file_changes>
+
+YOU MUST RETURN YOUR RESPONSE IN THIS EXACT XML FORMAT:
+
+Do not use tools. Do not edit files directly. Only return XML.
 
 <file_changes>
   <summary>Brief description of what changes were made</summary>
@@ -167,17 +320,33 @@ You MUST return your response in the following XML format. This is critical for 
     <content><![CDATA[
 // Your complete modified code here
 // Include the ENTIRE file content, not just the changed parts
+// This is the full file after your modifications
 ]]></content>
   </file>
 </file_changes>
 
-### Format Rules:
-1. Always wrap file content in <![CDATA[...]]> to handle special characters
-2. The "action" attribute must be one of: "create", "modify", "delete"
-3. For "modify" actions, include the complete file content
-4. For "delete" actions, leave <content> empty
-5. You can include multiple <file> elements if changes span multiple files
-6. Always include the full file path in the "path" attribute
+### XML Format Rules:
+1. MANDATORY: Wrap all code in <file_changes> XML tags as shown above
+2. Always wrap file content in <![CDATA[...]]> to handle special characters
+3. The "action" attribute must be one of: "create", "modify", "delete"
+4. For "modify" actions, include the COMPLETE file content (entire file, not just changed lines)
+5. For "delete" actions, leave <content> empty
+6. You can include multiple <file> elements if changes span multiple files
+7. Always include the full absolute file path in the "path" attribute
+
+FINAL REMINDER: Your entire response should ONLY contain the XML format above. No explanations before or after. No tool usage. No file edits. Just pure XML with the modified code inside.
+
+=================================================================
+FINAL CHECKLIST BEFORE YOU RESPOND:
+=================================================================
+
+[ ] Did I use any file editing tools? (If YES -> STOP, return XML instead)
+[ ] Did I make direct changes to files? (If YES -> STOP, return XML instead)
+[ ] Is my response PURE XML starting with <file_changes>? (Must be YES)
+[ ] Does my XML contain the COMPLETE file content? (Must be YES)
+[ ] Did I wrap code in <![CDATA[...]]>? (Must be YES)
+
+START YOUR RESPONSE NOW WITH <file_changes> - NO OTHER TEXT:
 
 Example for multiple files:
 <file_changes>

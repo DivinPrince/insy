@@ -206,6 +206,7 @@ export interface PromptSubmitPayload {
   sessionId?: string;     // Unique session ID per chat conversation
   conversationHistory?: ConversationMessage[];  // Full conversation history
   projectPath?: string;   // Project root path for this request
+  instanceId?: string;    // QuickEdit instance ID for routing responses
 }
 
 export interface DiffApprovalPayload {
@@ -250,6 +251,7 @@ export interface StatusUpdatePayload {
   stage: StatusStage;
   message: string;
   progress?: number;
+  instanceId?: string;    // Optional instance-specific update
 }
 
 export interface SourceFoundPayload {
@@ -266,11 +268,13 @@ export interface DiffGeneratedPayload {
     before: string;
     after: string;
   };
+  instanceId?: string;    // QuickEdit instance ID
 }
 
 export interface MultiDiffGeneratedPayload {
-  elementId: string;
+  elementId?: string;     // Deprecated, use instanceId
   summary?: string;
+  instanceId?: string;    // QuickEdit instance ID
   diffs: Array<{
     diffId: string;
     file: string;
@@ -288,6 +292,7 @@ export interface DiffAppliedPayload {
   file: string;
   success: boolean;
   backupPath?: string;
+  instanceId?: string;    // QuickEdit instance ID
 }
 
 export interface ErrorPayload {

@@ -1,5 +1,4 @@
 import { h } from 'preact';
-import { useState, useEffect } from 'preact/hooks';
 import type { FunctionComponent } from 'preact';
 
 interface WidgetButtonProps {
@@ -7,7 +6,6 @@ interface WidgetButtonProps {
   active: boolean;
   onClick: () => void;
   position: { x: number; y: number }; // pixels from bottom-right
-  onPositionChange: (pos: { x: number; y: number }) => void;
 }
 
 export const WidgetButton: FunctionComponent<WidgetButtonProps> = ({
@@ -15,55 +13,10 @@ export const WidgetButton: FunctionComponent<WidgetButtonProps> = ({
   active,
   onClick,
   position,
-  onPositionChange,
 }) => {
-  const [isDragging, setIsDragging] = useState(false);
-  const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
-
-  const handleMouseDown = (e: MouseEvent) => {
-    if (e.button === 0) { // Left click only
-      setIsDragging(true);
-      setDragStart({
-        x: e.clientX - (window.innerWidth - position.x),
-        y: e.clientY - (window.innerHeight - position.y),
-      });
-      e.stopPropagation();
-    }
-  };
-
-  useEffect(() => {
-    if (!isDragging) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      const newX = Math.max(20, window.innerWidth - e.clientX + dragStart.x);
-      const newY = Math.max(20, window.innerHeight - e.clientY + dragStart.y);
-      onPositionChange({ x: newX, y: newY });
-    };
-
-    const handleMouseUp = () => {
-      setIsDragging(false);
-    };
-
-    document.addEventListener('mousemove', handleMouseMove);
-    document.addEventListener('mouseup', handleMouseUp);
-
-    return () => {
-      document.removeEventListener('mousemove', handleMouseMove);
-      document.removeEventListener('mouseup', handleMouseUp);
-    };
-  }, [isDragging, dragStart, onPositionChange]);
-
-  const handleClick = (e: MouseEvent) => {
-    if (!isDragging) {
-      onClick();
-    }
-    e.stopPropagation();
-  };
-
   return (
     <button
-      onMouseDown={handleMouseDown}
-      onClick={handleClick}
+      onClick={onClick}
       style={{
         position: 'fixed',
         right: `${position.x}px`,
@@ -76,16 +29,16 @@ export const WidgetButton: FunctionComponent<WidgetButtonProps> = ({
         boxShadow: active
           ? '0 8px 24px rgba(0, 0, 0, 0.25)'
           : '0 4px 12px rgba(0, 0, 0, 0.08), 0 0 0 1px rgba(0, 0, 0, 0.04)',
-        cursor: isDragging ? 'grabbing' : 'grab',
+        cursor: 'pointer',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         zIndex: 999997,
-        transition: isDragging ? 'none' : 'all 0.2s ease',
+        transition: 'all 0.2s ease',
         transform: active ? 'scale(1.05)' : 'scale(1)',
       }}
-      title={active ? 'Cancel Selection (Esc)' : `PixelCode${connected ? '' : ' (Disconnected)'}`}
+      title={active ? 'Cancel Selection (Esc)' : `Select Element (Alt+Q)${connected ? '' : ' - Disconnected'}`}
     >
       {active ? (
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
