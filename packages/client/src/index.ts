@@ -1,5 +1,5 @@
 import { render, h } from 'preact';
-import { WebSocketClient } from './websocket/client';
+import { SSEClient } from './sse/client';
 import { ElementSelector } from './core/selector';
 import { detectFramework, captureFrameworkContext } from './frameworks/detector';
 import { extractSourceHints } from './core/capture';
@@ -7,18 +7,12 @@ import { WidgetButton } from './ui/widget-button';
 import { QuickEdit } from './ui/quick-edit';
 import type { DiffPreview } from './ui/quick-edit';
 import type {
-  Message,
   ElementInfo,
-  ElementContext,
+  Framework,
   FrameworkContext,
   StatusUpdatePayload,
-  DiffGeneratedPayload,
   MultiDiffGeneratedPayload,
   DiffAppliedPayload,
-  ToolsListPayload,
-  ModelsListPayload,
-  ModelInfo,
-  ToolInfo,
 } from '@pixelcode/shared';
 
 // Simple ID generator
@@ -30,7 +24,9 @@ interface QuickEditInstance {
   id: string;
   targetElement: HTMLElement;
   elementInfo: ElementInfo;
+  framework: Framework;
   frameworkContext?: FrameworkContext;
+  sourceHints: ReturnType<typeof extractSourceHints>;
   container: HTMLElement;
   shadowRoot: ShadowRoot;
   state: 'prompt' | 'loading' | 'changes';
@@ -39,7 +35,7 @@ interface QuickEditInstance {
 }
 
 class InsyClient {
-  private ws: WebSocketClient;
+  private sse: SSEClient;
   private selector: ElementSelector;
   private isConnected = false;
   private isSelectorActive = false;
@@ -47,12 +43,6 @@ class InsyClient {
   private buttonContainer: HTMLDivElement | null = null;
   private buttonShadowRoot: ShadowRoot | null = null;
   private readonly MAX_INSTANCES = 5;
-
-  // Tool & Model state
-  private availableTools: ToolInfo[] = [];
-  private selectedTool: string = '';
-  private availableModels: ModelInfo[] = [];
-  private selectedModel: string = '';
   private projectPath: string = '';
 
   constructor() {
@@ -60,26 +50,25 @@ class InsyClient {
     const config = (window as any).__PIXELCODE_CONFIG__ || {};
     const host = config.host || 'localhost';
     const port = config.port || 7777;
-    const wsUrl = `ws://${host}:${port}`;
+    const baseUrl = `http://${host}:${port}`;
 
-    this.ws = new WebSocketClient(wsUrl);
+    this.sse = new SSEClient(baseUrl);
     this.selector = new ElementSelector();
 
     // Get project path from config
     this.projectPath = config.projectPath || '';
 
-    this.setupMessageHandlers();
+    this.setupEventHandlers();
     this.setupKeyboardShortcut();
 
-    console.log(`[Insy] Connecting to ${wsUrl}`);
+    console.log(`[Insy] Connecting to ${baseUrl}`);
   }
 
   async init(): Promise<void> {
     try {
-      await this.ws.connect();
+      await this.sse.connect();
       this.isConnected = true;
       this.renderButton();
-      this.requestTools();
       console.log('✅ Insy connected');
     } catch (error) {
       console.error('❌ Failed to connect:', error);
@@ -98,33 +87,30 @@ class InsyClient {
     });
   }
 
-  private setupMessageHandlers(): void {
-    this.ws.on((message: Message) => {
-      const { type, payload } = message;
+  private setupEventHandlers(): void {
+    // Status updates during AI processing
+    this.sse.on<StatusUpdatePayload>('status', (payload) => {
+      this.handleStatusUpdate(payload);
+    });
 
-      switch (type) {
-        case 'status:update':
-          this.handleStatusUpdate(payload as StatusUpdatePayload);
-          break;
-        case 'diff:generated':
-          this.handleDiffGenerated(payload as DiffGeneratedPayload);
-          break;
-        case 'multi_diff:generated':
-          this.handleMultiDiffGenerated(payload as MultiDiffGeneratedPayload);
-          break;
-        case 'diff:applied':
-          this.handleDiffApplied(payload as DiffAppliedPayload);
-          break;
-        case 'diff:undone':
-          this.handleDiffUndone(payload as { diffId: string; success: boolean });
-          break;
-        case 'tools:list:response':
-          this.handleToolsList(payload as ToolsListPayload);
-          break;
-        case 'models:list:response':
-          this.handleModelsList(payload as ModelsListPayload);
-          break;
-      }
+    // Diff generated (multi-file)
+    this.sse.on<MultiDiffGeneratedPayload>('diff', (payload) => {
+      this.handleMultiDiffGenerated(payload);
+    });
+
+    // Diff applied
+    this.sse.on<DiffAppliedPayload>('applied', (payload) => {
+      this.handleDiffApplied(payload);
+    });
+
+    // Diff undone
+    this.sse.on<{ diffId: string; success: boolean }>('undone', (payload) => {
+      this.handleDiffUndone(payload);
+    });
+
+    // Error handling
+    this.sse.on<{ code: string; message: string }>('error', (payload) => {
+      console.error(`[Insy] Error: ${payload.code} - ${payload.message}`);
     });
   }
 
@@ -140,25 +126,6 @@ class InsyClient {
       instance.state = 'loading';
     }
 
-    this.renderQuickEdit(instance);
-  }
-
-  private handleDiffGenerated(payload: DiffGeneratedPayload): void {
-    const { instanceId, diffId, file, preview } = payload;
-    if (!instanceId) return;
-
-    const instance = this.quickEditInstances.get(instanceId);
-    if (!instance) return;
-
-    const diffPreview: DiffPreview = {
-      file,
-      before: preview.before,
-      after: preview.after,
-      diffId,
-    };
-
-    instance.state = 'changes';
-    instance.diffs = [diffPreview];
     this.renderQuickEdit(instance);
   }
 
@@ -227,29 +194,16 @@ class InsyClient {
     });
   }
 
-  private createQuickEditInstance(targetElement: HTMLElement, elementInfo: ElementInfo): void {
+  private async createQuickEditInstance(
+    targetElement: HTMLElement,
+    elementInfo: ElementInfo
+  ): Promise<void> {
     const instanceId = generateId();
 
-    // Get framework context
+    // Get framework context (async for proper source file detection via bippy)
     const framework = detectFramework();
-    const frameworkContext = captureFrameworkContext(targetElement, framework);
+    const frameworkContext = await captureFrameworkContext(targetElement, framework);
     const sourceHints = extractSourceHints(targetElement);
-
-    // Send element:select message to server
-    const elementContext: ElementContext = {
-      element: elementInfo,
-      framework,
-      frameworkContext,
-      sourceHints,
-    };
-
-    this.ws.send(
-      this.createMessage('element:select', {
-        ...elementContext,
-        elementId: instanceId,
-        projectPath: this.projectPath,
-      })
-    );
 
     // Calculate position
     const rect = targetElement.getBoundingClientRect();
@@ -275,12 +229,14 @@ class InsyClient {
     shadowRoot.appendChild(this.createBaseStyles());
     shadowRoot.appendChild(container);
 
-    // Create instance
+    // Create instance - store element context for prompt submission
     const instance: QuickEditInstance = {
       id: instanceId,
       targetElement,
       elementInfo,
+      framework,
       frameworkContext,
+      sourceHints,
       container: host,
       shadowRoot,
       state: 'prompt',
@@ -310,11 +266,6 @@ class InsyClient {
         state: instance.state,
         statusMessage: instance.statusMessage,
         diffs: instance.diffs,
-        models: this.availableModels,
-        selectedModel: this.selectedModel,
-        onModelChange: (modelId) => {
-          this.handleModelChange(modelId);
-        },
         onSubmit: (instanceId: string, prompt: string) => {
           this.handlePromptSubmit(instanceId, prompt);
         },
@@ -330,6 +281,12 @@ class InsyClient {
         onRejectChanges: (instanceId: string) => {
           this.handleRejectChanges(instanceId);
         },
+        onTogglePreview: (instanceId: string, diffId: string) => {
+          this.handleTogglePreview(instanceId, diffId);
+        },
+        onToggleAllPreviews: (instanceId: string, diffIds: string[]) => {
+          this.handleToggleAllPreviews(instanceId, diffIds);
+        },
       }),
       container
     );
@@ -343,19 +300,27 @@ class InsyClient {
     instance.statusMessage = 'Sending request...';
     this.renderQuickEdit(instance);
 
-    this.ws.send(
-      this.createMessage('prompt:submit', {
-        elementId: instanceId,
+    // Include full element context in the prompt submission
+    this.sse
+      .post('/api/prompt/submit', {
+        instanceId,
         prompt,
         mode: 'preview',
-        tool: this.selectedTool || undefined,
-        model: this.selectedModel || undefined,
         sessionId: instanceId,
         conversationHistory: [],
         projectPath: this.projectPath,
-        instanceId,
+        // Element context (previously sent via /api/element/select)
+        element: instance.elementInfo,
+        framework: instance.framework,
+        frameworkContext: instance.frameworkContext,
+        sourceHints: instance.sourceHints,
       })
-    );
+      .catch((error) => {
+        console.error('[Insy] Failed to submit prompt:', error);
+        instance.state = 'prompt';
+        instance.statusMessage = undefined;
+        this.renderQuickEdit(instance);
+      });
   }
 
   private handleAcceptChanges(instanceId: string, diffIds: string[]): void {
@@ -364,12 +329,14 @@ class InsyClient {
 
     // Send accept for each diff ID - keeps changes, deletes backups
     diffIds.forEach((diffId) => {
-      this.ws.send(
-        this.createMessage('diff:approve', {
+      this.sse
+        .post('/api/diff/approve', {
           diffId: diffId,
           action: 'accept',
         })
-      );
+        .catch((error) => {
+          console.error('[Insy] Failed to accept diff:', error);
+        });
     });
 
     console.log('✅ Accepted changes');
@@ -382,15 +349,57 @@ class InsyClient {
 
     // Send rejection for each diff ID
     instance.diffs.forEach((diff) => {
-      this.ws.send(
-        this.createMessage('diff:approve', {
+      this.sse
+        .post('/api/diff/approve', {
           diffId: diff.diffId,
           action: 'reject',
         })
-      );
+        .catch((error) => {
+          console.error('[Insy] Failed to reject diff:', error);
+        });
     });
 
     this.destroyQuickEditInstance(instanceId);
+  }
+
+  private handleTogglePreview(instanceId: string, diffId: string): void {
+    const instance = this.quickEditInstances.get(instanceId);
+    if (!instance) return;
+
+    // Call toggle endpoint - server will swap between original and modified
+    this.sse
+      .post('/api/diff/toggle', { diffId })
+      .then((res) => {
+        const response = res as { success: boolean; isApplied: boolean };
+        if (response.success) {
+          console.log(`[Insy] Toggled preview for ${diffId}: ${response.isApplied ? 'ON' : 'OFF'}`);
+        }
+      })
+      .catch((error) => {
+        console.error('[Insy] Failed to toggle preview:', error);
+      });
+  }
+
+  private handleToggleAllPreviews(instanceId: string, diffIds: string[]): void {
+    const instance = this.quickEditInstances.get(instanceId);
+    if (!instance) return;
+
+    // Toggle all diffs sequentially
+    console.log(`[Insy] Toggling all ${diffIds.length} previews...`);
+
+    diffIds.forEach((diffId) => {
+      this.sse
+        .post('/api/diff/toggle', { diffId })
+        .then((res) => {
+          const response = res as { success: boolean; isApplied: boolean };
+          if (response.success) {
+            console.log(`[Insy] Toggled ${diffId}: ${response.isApplied ? 'ON' : 'OFF'}`);
+          }
+        })
+        .catch((error) => {
+          console.error(`[Insy] Failed to toggle ${diffId}:`, error);
+        });
+    });
   }
 
   private destroyQuickEditInstance(instanceId: string): void {
@@ -435,48 +444,6 @@ class InsyClient {
     window.removeEventListener('scroll', this.scrollHandler, true);
     window.removeEventListener('resize', this.scrollHandler);
     this.scrollHandler = null;
-  }
-
-  private createMessage(type: string, payload: any): Message {
-    return {
-      id: generateId(),
-      type,
-      payload,
-      timestamp: Date.now(),
-    };
-  }
-
-  private requestTools(): void {
-    this.ws.send(this.createMessage('tools:list', {}));
-  }
-
-  private requestModels(toolIdentifier: string): void {
-    this.ws.send(this.createMessage('models:list', { tool: toolIdentifier }));
-  }
-
-  private handleToolsList(payload: ToolsListPayload): void {
-    this.availableTools = payload.tools;
-
-    if (!this.selectedTool && payload.tools.length > 0) {
-      this.selectedTool = payload.tools[0].identifier;
-      this.requestModels(this.selectedTool);
-    }
-  }
-
-  private handleModelsList(payload: ModelsListPayload): void {
-    this.availableModels = payload.models;
-
-    if (!this.selectedModel && payload.models.length > 0) {
-      this.selectedModel = payload.models[0].id;
-    }
-  }
-
-  private handleModelChange(modelId: string): void {
-    this.selectedModel = modelId;
-    // Re-render all instances with new model
-    this.quickEditInstances.forEach((instance) => {
-      this.renderQuickEdit(instance);
-    });
   }
 
   private renderButton(): void {

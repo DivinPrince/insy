@@ -94,23 +94,6 @@ export interface SourceFile {
 }
 
 // ============================================================================
-// Tool & Model Management
-// ============================================================================
-
-export interface ToolInfo {
-  name: string; // e.g., "OpenCode"
-  identifier: string; // e.g., "opencode" (lowercase, used for registry lookup)
-  version?: string;
-  available: boolean;
-}
-
-export interface ModelInfo {
-  id: string; // e.g., "claude-sonnet-4.5", "gpt-5"
-  name: string; // Display name
-  provider?: string; // Optional provider info
-}
-
-// ============================================================================
 // Code Modifications
 // ============================================================================
 
@@ -163,7 +146,7 @@ export interface DiffResult {
 }
 
 // ============================================================================
-// WebSocket Messages
+// SSE Messages
 // ============================================================================
 
 export interface Message<T = unknown> {
@@ -174,14 +157,6 @@ export interface Message<T = unknown> {
 }
 
 // Client → Server Messages
-
-export interface ElementSelectPayload {
-  element: ElementInfo;
-  framework?: Framework;
-  frameworkContext?: FrameworkContext;
-  sourceHints?: SourceHints;
-  projectPath?: string; // Project root path for this element
-}
 
 // Conversation message for chat history
 export interface ConversationMessage {
@@ -198,44 +173,25 @@ export interface ConversationMessage {
 }
 
 export interface PromptSubmitPayload {
-  elementId: string;
+  // Instance identifier
+  instanceId: string;
+
+  // Element context (included directly, no separate element:select)
+  element: ElementInfo;
+  framework: Framework;
+  frameworkContext?: FrameworkContext;
+  sourceHints?: SourceHints;
+
+  // Prompt data
   prompt: string;
-  mode?: 'preview' | 'auto-apply';
-  tool?: string; // User-selected tool
-  model?: string; // User-selected model
   sessionId?: string; // Unique session ID per chat conversation
   conversationHistory?: ConversationMessage[]; // Full conversation history
   projectPath?: string; // Project root path for this request
-  instanceId?: string; // QuickEdit instance ID for routing responses
 }
 
 export interface DiffApprovalPayload {
   diffId: string;
   action: 'apply' | 'reject' | 'accept'; // accept = keep changes, delete backup
-}
-
-export interface ConfigUpdatePayload {
-  apiKey?: string;
-  provider?: 'openai' | 'anthropic' | 'opencode';
-  model?: string;
-  autoApply?: boolean;
-  tool?: string; // Tool preference
-}
-
-// New Tool & Model Payloads
-
-export interface ToolsListPayload {
-  tools: ToolInfo[];
-}
-
-export interface ModelsListPayload {
-  tool: string; // Tool identifier
-  models: ModelInfo[];
-}
-
-export interface ToolConfigPayload {
-  tool?: string; // Selected tool identifier
-  model?: string; // Selected model ID
 }
 
 // Server → Client Messages
@@ -246,30 +202,12 @@ export interface StatusUpdatePayload {
   stage: StatusStage;
   message: string;
   progress?: number;
-  instanceId?: string; // Optional instance-specific update
-}
-
-export interface SourceFoundPayload {
-  elementId: string;
-  files: SourceFile[];
-}
-
-export interface DiffGeneratedPayload {
-  diffId: string;
-  elementId: string;
-  file: string;
-  diff: string;
-  preview: {
-    before: string;
-    after: string;
-  };
-  instanceId?: string; // QuickEdit instance ID
+  instanceId?: string; // Instance-specific update
 }
 
 export interface MultiDiffGeneratedPayload {
-  elementId?: string; // Deprecated, use instanceId
+  instanceId: string; // QuickEdit instance ID
   summary?: string;
-  instanceId?: string; // QuickEdit instance ID
   autoApplied?: boolean; // If true, changes were auto-applied to files
   diffs: Array<{
     diffId: string;

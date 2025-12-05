@@ -5,34 +5,23 @@ import { readFile } from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import pc from 'picocolors';
-import type { WebSocket } from 'ws';
 import type {
-  Message,
-  ElementContext,
   PromptSubmitPayload,
   DiffApprovalPayload,
   StatusUpdatePayload,
-  ToolInfo,
-  ToolsListPayload,
-  ModelsListPayload,
-  ToolConfigPayload,
   CodeChangeAction,
 } from '@pixelcode/shared';
 
-import { PixelCodeWebSocketServer } from './websocket/server.js';
+import { PixelCodeSSEServer } from './sse/server.js';
 import { SourceFileFinder } from './analyzer/finder.js';
 import { DiffGenerator } from './modifier/diff.js';
 import { FileWriter } from './filesystem/writer.js';
 import { ConfigLoader } from './config/loader.js';
 import { AdapterRegistry } from './adapters/registry.js';
-import {
-  buildContextOnlyPrompt,
-  buildOpenCodePrompt,
-  parseOpenCodeResponse,
-} from './prompts/builder.js';
-import { parseStructuredResponse, isStructuredResponse } from './prompts/parser.js';
-import type { CLIToolAdapter } from './adapters/interface.js';
 import { OpenCodeError } from './adapters/opencode-cli.js';
+import type { CLIToolAdapter } from './adapters/interface.js';
+import { buildContextOnlyPrompt } from './prompts/builder.js';
+import { parseStructuredResponse, isStructuredResponse } from './prompts/parser.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -45,12 +34,11 @@ export interface ServerOptions {
 
 export class PixelCodeServer {
   private app: Hono;
-  private wsServer?: PixelCodeWebSocketServer;
+  private sseServer: PixelCodeSSEServer;
   private configLoader: ConfigLoader;
   private defaultProjectRoot: string;
   private adapterRegistry: AdapterRegistry;
   private currentAdapter?: CLIToolAdapter;
-  private elementContexts = new Map<string, ElementContext & { projectPath?: string }>();
   private pendingDiffs = new Map<string, any>();
 
   // Per-project service cache
@@ -66,8 +54,8 @@ export class PixelCodeServer {
   constructor(private options: ServerOptions = {}) {
     this.app = new Hono();
     this.defaultProjectRoot = options.projectRoot || process.cwd();
-
     this.configLoader = new ConfigLoader(this.defaultProjectRoot);
+    this.sseServer = new PixelCodeSSEServer();
     this.adapterRegistry = new AdapterRegistry();
 
     this.setupRoutes();
@@ -147,83 +135,151 @@ export class PixelCodeServer {
         return c.text('// Client not found. Run `pnpm build` first.', 404);
       }
     });
+
+    // SSE endpoint
+    this.app.get('/events', (c) => {
+      const clientId = c.req.query('clientId');
+      if (!clientId) {
+        return c.json({ error: 'clientId is required' }, 400);
+      }
+      return this.sseServer.handleConnection(clientId);
+    });
+
+    // REST API endpoints
+    this.setupAPIRoutes();
   }
 
-  private setupWebSocket(server: any): void {
-    this.wsServer = new PixelCodeWebSocketServer(server);
+  private setupAPIRoutes(): void {
+    // Prompt submission (includes element context)
+    this.app.post('/api/prompt/submit', async (c) => {
+      const clientId = c.req.header('X-Client-ID');
+      if (!clientId) {
+        return c.json({ error: 'X-Client-ID header is required' }, 400);
+      }
 
-    // List available tools
-    this.wsServer.on('tools:list', async (ws, message) => {
-      await this.handleToolsList(ws, message);
-    });
+      try {
+        const payload = (await c.req.json()) as PromptSubmitPayload;
 
-    // List models for a specific tool
-    this.wsServer.on('models:list', async (ws, message) => {
-      await this.handleModelsList(ws, message);
-    });
+        // Validate required fields
+        if (!payload.instanceId || !payload.element || !payload.framework || !payload.prompt) {
+          return c.json(
+            { error: 'Missing required fields: instanceId, element, framework, prompt' },
+            400
+          );
+        }
 
-    // Update tool/model configuration
-    this.wsServer.on('config:update', async (ws, message) => {
-      await this.handleConfigUpdate(ws, message);
-    });
+        // Start async processing - return immediately
+        this.handlePrompt(clientId, payload).catch((error) => {
+          console.error('[Server] Error in prompt handling:', error);
+          this.sseServer.send(clientId, 'error', {
+            code: 'PROCESSING_ERROR',
+            message: error instanceof Error ? error.message : 'Unknown error',
+          });
+        });
 
-    // Element selection
-    this.wsServer.on('element:select', async (ws, message) => {
-      const payload = message.payload as any;
-      const elementId = payload.elementId || crypto.randomUUID();
-
-      // Extract context and store projectPath
-      const { elementId: _, projectPath, ...context } = payload;
-      this.elementContexts.set(elementId, { ...context, projectPath });
-      console.log(
-        `[Server] Element selected: ${elementId}${projectPath ? ` (project: ${projectPath})` : ''}`
-      );
-    });
-
-    // Prompt submission
-    this.wsServer.on('prompt:submit', async (ws, message) => {
-      await this.handlePrompt(ws, message);
+        return c.json({ accepted: true, instanceId: payload.instanceId });
+      } catch (error) {
+        console.error('[Server] Error parsing prompt/submit:', error);
+        return c.json({ error: 'Failed to parse request' }, 400);
+      }
     });
 
     // Diff approval
-    this.wsServer.on('diff:approve', async (ws, message) => {
-      await this.handleDiffApproval(ws, message);
+    this.app.post('/api/diff/approve', async (c) => {
+      const clientId = c.req.header('X-Client-ID');
+      if (!clientId) {
+        return c.json({ error: 'X-Client-ID header is required' }, 400);
+      }
+
+      try {
+        const payload = (await c.req.json()) as DiffApprovalPayload;
+        await this.handleDiffApproval(clientId, payload);
+        return c.json({ success: true });
+      } catch (error) {
+        console.error('[Server] Error in diff/approve:', error);
+        return c.json({ error: 'Failed to process diff approval' }, 500);
+      }
     });
 
     // Diff undo
-    this.wsServer.on('diff:undo', async (ws, message) => {
-      await this.handleDiffUndo(ws, message);
+    this.app.post('/api/diff/undo', async (c) => {
+      const clientId = c.req.header('X-Client-ID');
+      if (!clientId) {
+        return c.json({ error: 'X-Client-ID header is required' }, 400);
+      }
+
+      try {
+        const payload = (await c.req.json()) as { diffId: string };
+        await this.handleDiffUndo(clientId, payload);
+        return c.json({ success: true });
+      } catch (error) {
+        console.error('[Server] Error in diff/undo:', error);
+        return c.json({ error: 'Failed to process diff undo' }, 500);
+      }
+    });
+
+    // Diff toggle (preview on/off without losing backup)
+    this.app.post('/api/diff/toggle', async (c) => {
+      const clientId = c.req.header('X-Client-ID');
+      if (!clientId) {
+        return c.json({ error: 'X-Client-ID header is required' }, 400);
+      }
+
+      try {
+        const payload = (await c.req.json()) as { diffId: string };
+        const result = await this.handleDiffToggle(clientId, payload);
+        return c.json(result);
+      } catch (error) {
+        console.error('[Server] Error in diff/toggle:', error);
+        return c.json({ error: 'Failed to toggle diff' }, 500);
+      }
     });
   }
 
-  private async handlePrompt(ws: WebSocket, message: Message): Promise<void> {
-    const payload = message.payload as PromptSubmitPayload;
-    const context = this.elementContexts.get(payload.elementId);
+  private async handlePrompt(clientId: string, payload: PromptSubmitPayload): Promise<void> {
+    // Extract context directly from payload (no separate element:select step)
+    const {
+      element,
+      framework,
+      frameworkContext,
+      sourceHints,
+      projectPath: payloadProjectPath,
+    } = payload;
 
-    if (!context) {
-      this.wsServer?.sendError(ws, 'CONTEXT_NOT_FOUND', 'Element context not found');
-      return;
-    }
+    // Build context object
+    const context = {
+      element,
+      framework,
+      frameworkContext,
+      sourceHints,
+      prompt: payload.prompt,
+    };
 
-    // Get project path from payload or context, fallback to default
-    const projectPath = payload.projectPath || context.projectPath || this.defaultProjectRoot;
+    // Get project path from payload, fallback to default
+    const projectPath = payloadProjectPath || this.defaultProjectRoot;
     const { diffGenerator } = this.getProjectServices(projectPath);
 
     try {
       // Stage 1: Prepare context for AI
-      this.sendStatus(ws, payload.elementId, 'analyzing', 'Preparing element context...', 10);
+      this.sendStatus(
+        clientId,
+        payload.instanceId,
+        'analyzing',
+        'Preparing element context...',
+        10
+      );
       console.log('[Server] Processing element context...');
       console.log('[Server] Project:', projectPath);
-      console.log('[Server] Framework:', context.framework.type);
+      console.log('[Server] Framework:', framework.type);
       console.log(
         '[Server] Element:',
-        context.element.tagName,
-        context.element.id ? `#${context.element.id}` : '',
-        context.element.className ? `.${context.element.className.split(' ')[0]}` : ''
+        element.tagName,
+        element.id ? `#${element.id}` : '',
+        element.className ? `.${element.className.split(' ')[0]}` : ''
       );
 
       // Get component info from React context
-      const reactContext = context.frameworkContext as any;
+      const reactContext = frameworkContext as any;
       if (reactContext?.componentName) {
         console.log('[Server] Component:', reactContext.componentName);
       }
@@ -231,12 +287,10 @@ export class PixelCodeServer {
         console.log('[Server] Component path:', reactContext.fiberPath.slice(-5).join(' → '));
       }
 
-      // Stage 2: Build prompt with full context (no source file needed)
-      this.sendStatus(ws, payload.elementId, 'ai_processing', 'Building prompt...', 30);
+      // Stage 2: Build prompt with full context
+      this.sendStatus(clientId, payload.instanceId, 'ai_processing', 'Building prompt...', 30);
 
-      // Add user's prompt to context
-      const contextWithPrompt = { ...context, prompt: payload.prompt };
-      const prompt = buildContextOnlyPrompt(contextWithPrompt, payload.conversationHistory);
+      const prompt = buildContextOnlyPrompt(context, payload.conversationHistory);
 
       // Log conversation history if present
       if (payload.conversationHistory && payload.conversationHistory.length > 0) {
@@ -245,26 +299,20 @@ export class PixelCodeServer {
         );
       }
 
-      // Stage 3: Execute CLI - Use tool from payload or fallback to current adapter
-      let adapter = this.currentAdapter;
-      if (payload.tool) {
-        const requestedAdapter = await this.adapterRegistry.getAdapter(payload.tool);
-        if (requestedAdapter) {
-          adapter = requestedAdapter;
-          console.log(`[Server] Using requested tool: ${adapter.name}`);
-        }
-      }
-
-      if (!adapter) {
-        this.wsServer?.sendError(ws, 'NO_ADAPTER', 'No CLI tool adapter available');
+      // Stage 3: Execute CLI via adapter
+      if (!this.currentAdapter) {
+        this.sseServer.send(clientId, 'error', {
+          code: 'NO_ADAPTER',
+          message: 'No CLI tool adapter available',
+        });
         return;
       }
 
       this.sendStatus(
-        ws,
-        payload.elementId,
+        clientId,
+        payload.instanceId,
         'ai_processing',
-        `Asking ${adapter.name} to find and edit files...`,
+        `Asking ${this.currentAdapter.name} to find and edit files...`,
         50
       );
 
@@ -273,9 +321,9 @@ export class PixelCodeServer {
       const sessionId = payload.sessionId || config.opencode?.session || 'pixelcode-default';
       console.log(`[Server] Using session: ${sessionId}`);
 
-      const cliResponse = await adapter.run(prompt, {
+      const cliResponse = await this.currentAdapter.run(prompt, {
         session: sessionId,
-        model: payload.model || config.opencode?.model, // Use model from payload or config
+        model: config.opencode?.model,
         continueSession: config.opencode?.continueSession,
         cwd: projectPath,
       });
@@ -286,7 +334,13 @@ export class PixelCodeServer {
       console.log('[Server] ===== END AI RESPONSE =====');
 
       // Stage 4: Parse response
-      this.sendStatus(ws, payload.elementId, 'generating_diff', 'Parsing AI response...', 70);
+      this.sendStatus(
+        clientId,
+        payload.instanceId,
+        'generating_diff',
+        'Parsing AI response...',
+        70
+      );
 
       // Check if response is in structured XML format
       if (isStructuredResponse(cliResponse)) {
@@ -294,7 +348,7 @@ export class PixelCodeServer {
         const structured = parseStructuredResponse(cliResponse);
 
         // Stage 5: Generate diffs for all changes
-        this.sendStatus(ws, payload.elementId, 'generating_diff', 'Generating diffs...', 85);
+        this.sendStatus(clientId, payload.instanceId, 'generating_diff', 'Generating diffs...', 85);
         const multiDiff = await diffGenerator.generateMultiple(
           structured.changes,
           structured.summary
@@ -313,7 +367,7 @@ export class PixelCodeServer {
         const { fileWriter } = this.getProjectServices(projectPath);
 
         // Auto-apply all diffs immediately
-        this.sendStatus(ws, payload.elementId, 'generating_diff', 'Applying changes...', 90);
+        this.sendStatus(clientId, payload.instanceId, 'generating_diff', 'Applying changes...', 90);
 
         for (const diff of multiDiff.results) {
           this.pendingDiffs.set(diff.id, { ...diff, projectPath });
@@ -341,9 +395,9 @@ export class PixelCodeServer {
           });
         }
 
-        // Send multi-diff to client with autoApplied flag
+        // Send multi-diff to client via SSE
         console.log(
-          `[Server] Sending multi_diff:generated with ${diffPayloads.length} diff(s) (auto-applied)`
+          `[Server] Sending diff event with ${diffPayloads.length} diff(s) (auto-applied)`
         );
         for (const dp of diffPayloads) {
           console.log(
@@ -351,30 +405,21 @@ export class PixelCodeServer {
           );
         }
 
-        this.wsServer?.send(ws, {
-          id: crypto.randomUUID(),
-          type: 'multi_diff:generated',
-          payload: {
-            instanceId: payload.elementId,
-            summary: structured.summary,
-            diffs: diffPayloads,
-            autoApplied: true,
-          },
-          timestamp: Date.now(),
+        this.sseServer.send(clientId, 'diff', {
+          instanceId: payload.instanceId,
+          summary: structured.summary,
+          diffs: diffPayloads,
+          autoApplied: true,
         });
-
-        // Note: Not sending status:complete here as the multi_diff:generated message
-        // already transitions the client to diff review state
       } else {
         // Legacy format - AI didn't return structured XML
-        // This shouldn't happen with the new context-only prompt, but handle gracefully
         console.warn('[Server] AI response not in structured format, raw response received');
-        this.wsServer?.sendError(
-          ws,
-          'PARSE_ERROR',
-          'AI response was not in the expected XML format. Expected <file_changes> with file content for diff generation.'
-        );
-        this.sendStatus(ws, payload.elementId, 'error', 'Unexpected response format', 0);
+        this.sseServer.send(clientId, 'error', {
+          code: 'PARSE_ERROR',
+          message:
+            'AI response was not in the expected XML format. Expected <file_changes> with file content for diff generation.',
+        });
+        this.sendStatus(clientId, payload.instanceId, 'error', 'Unexpected response format', 0);
       }
     } catch (error) {
       console.error('[Server] Error handling prompt:', error);
@@ -396,26 +441,29 @@ export class PixelCodeServer {
           userMessage = `AI provider error: ${error.message}`;
         }
 
-        this.wsServer?.sendError(ws, errorCode, userMessage, {
-          errorName: error.errorName,
-          providerID: error.providerID,
+        this.sseServer.send(clientId, 'error', {
+          code: errorCode,
+          message: userMessage,
+          details: {
+            errorName: error.errorName,
+            providerID: error.providerID,
+          },
         });
 
         // Also send a status update to clear the loading state
-        this.sendStatus(ws, payload.elementId, 'error', userMessage, 0);
+        this.sendStatus(clientId, payload.instanceId, 'error', userMessage, 0);
         return;
       }
 
-      this.wsServer?.sendError(
-        ws,
-        'PROCESSING_ERROR',
-        error instanceof Error ? error.message : 'Unknown error'
-      );
+      this.sseServer.send(clientId, 'error', {
+        code: 'PROCESSING_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
 
       // Send error status to clear loading state
       this.sendStatus(
-        ws,
-        payload.elementId,
+        clientId,
+        payload.instanceId,
         'error',
         error instanceof Error ? error.message : 'An error occurred',
         0
@@ -423,12 +471,14 @@ export class PixelCodeServer {
     }
   }
 
-  private async handleDiffApproval(ws: WebSocket, message: Message): Promise<void> {
-    const payload = message.payload as DiffApprovalPayload;
+  private async handleDiffApproval(clientId: string, payload: DiffApprovalPayload): Promise<void> {
     const storedDiff = this.pendingDiffs.get(payload.diffId);
 
     if (!storedDiff) {
-      this.wsServer?.sendError(ws, 'DIFF_NOT_FOUND', 'Diff not found');
+      this.sseServer.send(clientId, 'error', {
+        code: 'DIFF_NOT_FOUND',
+        message: 'Diff not found',
+      });
       return;
     }
 
@@ -452,15 +502,10 @@ export class PixelCodeServer {
       await fileWriter.deleteBackup(payload.diffId);
       this.pendingDiffs.delete(payload.diffId);
 
-      this.wsServer?.send(ws, {
-        id: crypto.randomUUID(),
-        type: 'diff:accepted',
-        payload: {
-          diffId: payload.diffId,
-          file: diff.file,
-          success: true,
-        },
-        timestamp: Date.now(),
+      this.sseServer.send(clientId, 'accepted', {
+        diffId: payload.diffId,
+        file: diff.file,
+        success: true,
       });
 
       console.log(`[Server] Accepted diff ${payload.diffId} - backup deleted, changes kept`);
@@ -472,39 +517,38 @@ export class PixelCodeServer {
       const result = await fileWriter.applyDiff(diff);
 
       if (result.success) {
-        this.wsServer?.send(ws, {
-          id: crypto.randomUUID(),
-          type: 'diff:applied',
-          payload: {
-            diffId: payload.diffId,
-            file: diff.file,
-            success: true,
-            backupPath: result.backupPath,
-          },
-          timestamp: Date.now(),
+        this.sseServer.send(clientId, 'applied', {
+          diffId: payload.diffId,
+          file: diff.file,
+          success: true,
+          backupPath: result.backupPath,
         });
 
         // DON'T delete from pendingDiffs - keep it for undo capability
         console.log(`[Server] Applied diff ${payload.diffId}, keeping in memory for undo`);
       } else {
-        this.wsServer?.sendError(ws, 'WRITE_ERROR', result.error || 'Failed to write file');
+        this.sseServer.send(clientId, 'error', {
+          code: 'WRITE_ERROR',
+          message: result.error || 'Failed to write file',
+        });
       }
     } catch (error) {
       console.error('[Server] Error applying diff:', error);
-      this.wsServer?.sendError(
-        ws,
-        'WRITE_ERROR',
-        error instanceof Error ? error.message : 'Unknown error'
-      );
+      this.sseServer.send(clientId, 'error', {
+        code: 'WRITE_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
     }
   }
 
-  private async handleDiffUndo(ws: WebSocket, message: Message): Promise<void> {
-    const payload = message.payload as { diffId: string };
+  private async handleDiffUndo(clientId: string, payload: { diffId: string }): Promise<void> {
     const storedDiff = this.pendingDiffs.get(payload.diffId);
 
     if (!storedDiff) {
-      this.wsServer?.sendError(ws, 'DIFF_NOT_FOUND', 'Diff not found');
+      this.sseServer.send(clientId, 'error', {
+        code: 'DIFF_NOT_FOUND',
+        message: 'Diff not found',
+      });
       return;
     }
 
@@ -519,127 +563,86 @@ export class PixelCodeServer {
       const success = await fileWriter.undo(payload.diffId);
 
       if (success) {
-        this.wsServer?.send(ws, {
-          id: crypto.randomUUID(),
-          type: 'diff:undone',
-          payload: {
-            diffId: payload.diffId,
-            success: true,
-          },
-          timestamp: Date.now(),
+        this.sseServer.send(clientId, 'undone', {
+          diffId: payload.diffId,
+          success: true,
         });
 
         console.log(`[Server] Undid changes for diff ${payload.diffId}`);
       } else {
-        this.wsServer?.sendError(ws, 'UNDO_ERROR', 'Failed to undo changes');
+        this.sseServer.send(clientId, 'error', {
+          code: 'UNDO_ERROR',
+          message: 'Failed to undo changes',
+        });
       }
     } catch (error) {
       console.error('[Server] Error undoing diff:', error);
-      this.wsServer?.sendError(
-        ws,
-        'UNDO_ERROR',
-        error instanceof Error ? error.message : 'Unknown error'
-      );
+      this.sseServer.send(clientId, 'error', {
+        code: 'UNDO_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
     }
   }
 
-  private async handleToolsList(ws: WebSocket, message: Message): Promise<void> {
-    try {
-      const available = await this.adapterRegistry.getAvailableWithPriority();
+  private async handleDiffToggle(
+    clientId: string,
+    payload: { diffId: string }
+  ): Promise<{ success: boolean; isApplied: boolean }> {
+    const storedDiff = this.pendingDiffs.get(payload.diffId);
 
-      const tools: ToolInfo[] = await Promise.all(
-        available.map(async (adapter) => ({
-          name: adapter.name,
-          identifier: adapter.name.toLowerCase().replace(/\s+/g, '-'),
-          version: adapter.getVersion ? await adapter.getVersion() : undefined,
-          available: true,
-        }))
-      );
-
-      this.wsServer?.send(ws, {
-        id: crypto.randomUUID(),
-        type: 'tools:list:response',
-        payload: { tools } as ToolsListPayload,
-        timestamp: Date.now(),
+    if (!storedDiff) {
+      this.sseServer.send(clientId, 'error', {
+        code: 'DIFF_NOT_FOUND',
+        message: 'Diff not found',
       });
-    } catch (error) {
-      console.error('[Server] Error listing tools:', error);
-      this.wsServer?.sendError(ws, 'TOOLS_LIST_ERROR', 'Failed to list tools');
+      return { success: false, isApplied: false };
     }
-  }
 
-  private async handleModelsList(ws: WebSocket, message: Message): Promise<void> {
-    const payload = message.payload as { tool: string };
+    // Extract projectPath
+    const { projectPath } = storedDiff;
 
+    // Get fileWriter for the correct project
+    const { fileWriter } = this.getProjectServices(projectPath);
+
+    // Toggle changes on/off
     try {
-      const adapter = await this.adapterRegistry.getAdapter(payload.tool);
+      const result = await fileWriter.toggle(payload.diffId);
 
-      if (!adapter) {
-        this.wsServer?.sendError(ws, 'TOOL_NOT_FOUND', `Tool '${payload.tool}' not found`);
-        return;
+      if (result.success) {
+        this.sseServer.send(clientId, 'toggled', {
+          diffId: payload.diffId,
+          isApplied: result.isApplied,
+        });
+
+        console.log(
+          `[Server] Toggled diff ${payload.diffId} - now ${result.isApplied ? 'ON' : 'OFF'}`
+        );
       }
 
-      const models = adapter.getAvailableModels ? await adapter.getAvailableModels() : [];
-
-      this.wsServer?.send(ws, {
-        id: crypto.randomUUID(),
-        type: 'models:list:response',
-        payload: { tool: payload.tool, models } as ModelsListPayload,
-        timestamp: Date.now(),
-      });
+      return result;
     } catch (error) {
-      console.error('[Server] Error listing models:', error);
-      this.wsServer?.sendError(ws, 'MODELS_LIST_ERROR', 'Failed to list models');
-    }
-  }
-
-  private async handleConfigUpdate(ws: WebSocket, message: Message): Promise<void> {
-    const payload = message.payload as ToolConfigPayload;
-
-    try {
-      // Update current adapter if tool changed
-      if (payload.tool) {
-        const adapter = await this.adapterRegistry.getAdapter(payload.tool);
-        if (adapter) {
-          this.currentAdapter = adapter;
-          console.log(`[Server] Switched to ${adapter.name}`);
-        }
-      }
-
-      // Store model preference (could persist to config file later)
-      if (payload.model) {
-        const config = this.configLoader.get();
-        if (!config.opencode) {
-          config.opencode = {};
-        }
-        config.opencode.model = payload.model;
-      }
-
-      this.wsServer?.send(ws, {
-        id: crypto.randomUUID(),
-        type: 'config:update:response',
-        payload: { success: true },
-        timestamp: Date.now(),
+      console.error('[Server] Error toggling diff:', error);
+      this.sseServer.send(clientId, 'error', {
+        code: 'TOGGLE_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error',
       });
-    } catch (error) {
-      console.error('[Server] Error updating config:', error);
-      this.wsServer?.sendError(ws, 'CONFIG_UPDATE_ERROR', 'Failed to update config');
+      return { success: false, isApplied: false };
     }
   }
 
   private sendStatus(
-    ws: WebSocket,
-    elementId: string,
+    clientId: string,
+    instanceId: string,
     stage: string,
     message: string,
     progress?: number
   ): void {
-    this.wsServer?.send(ws, {
-      id: crypto.randomUUID(),
-      type: 'status:update',
-      payload: { instanceId: elementId, stage, message, progress } as StatusUpdatePayload,
-      timestamp: Date.now(),
-    });
+    this.sseServer.send(clientId, 'status', {
+      instanceId,
+      stage,
+      message,
+      progress,
+    } as StatusUpdatePayload);
   }
 
   async start(): Promise<void> {
@@ -676,26 +679,26 @@ export class PixelCodeServer {
     if (this.currentAdapter && this.currentAdapter.getVersion) {
       const version = await this.currentAdapter.getVersion();
       console.log(pc.green(`✓ Found ${this.currentAdapter.name} v${version}`));
-    } else {
-      console.log(pc.green(`✓ Found ${this.currentAdapter?.name}`));
+    } else if (this.currentAdapter) {
+      console.log(pc.green(`✓ Found ${this.currentAdapter.name}`));
     }
 
     const port = this.options.port || config.server?.port || 7777;
     const host = this.options.host || config.server?.host || 'localhost';
 
     // Start HTTP server
-    const server = serve(
+    serve(
       {
         fetch: this.app.fetch,
         port,
         hostname: host,
       },
-      (info: any) => {
+      () => {
         console.log();
         console.log(pc.bold(pc.cyan('🎨 PixelCode Server')));
         console.log();
         console.log(`${pc.green('✓')} Server running at ${pc.cyan(`http://${host}:${port}`)}`);
-        console.log(`${pc.green('✓')} WebSocket ready at ${pc.cyan(`ws://${host}:${port}`)}`);
+        console.log(`${pc.green('✓')} SSE endpoint at ${pc.cyan(`http://${host}:${port}/events`)}`);
         console.log();
         console.log(pc.dim('Add this script tag to your app:'));
         console.log(pc.yellow(`  <script src="http://${host}:${port}/client.js"></script>`));
@@ -709,8 +712,5 @@ export class PixelCodeServer {
         console.log();
       }
     );
-
-    // Setup WebSocket
-    this.setupWebSocket(server);
   }
 }

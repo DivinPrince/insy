@@ -1,7 +1,6 @@
 import { spawn, exec } from 'child_process';
 import { promisify } from 'util';
-import type { CLIToolAdapter, RunOptions } from './interface.js';
-import type { ModelInfo } from '@pixelcode/shared';
+import type { CLIToolAdapter, RunOptions, ModelInfo } from './interface.js';
 
 const execAsync = promisify(exec);
 
@@ -27,7 +26,7 @@ export interface OpenCodeConfig {
 
 export class OpenCodeCLIAdapter implements CLIToolAdapter {
   name = 'OpenCode';
-  
+
   constructor(private config: OpenCodeConfig = {}) {}
 
   async isAvailable(): Promise<boolean> {
@@ -61,9 +60,7 @@ export class OpenCodeCLIAdapter implements CLIToolAdapter {
     } catch (error) {
       console.warn('[OpenCode] Failed to fetch models:', error);
       // Return a basic fallback list
-      return [
-        { id: 'default', name: 'Default Model' },
-      ];
+      return [{ id: 'default', name: 'Default Model' }];
     }
   }
 
@@ -73,16 +70,16 @@ export class OpenCodeCLIAdapter implements CLIToolAdapter {
     // - Provider: Model Name (model-id)
     // - anthropic: Claude Sonnet (claude-sonnet-4.5)
     // We'll do our best to parse it
-    
+
     const models: ModelInfo[] = [];
     const lines = output.trim().split('\n');
-    
+
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith('Available') || trimmed.startsWith('Provider')) {
         continue;
       }
-      
+
       // Try to match pattern: "- provider: Name (id)"
       const match = trimmed.match(/^-?\s*(\w+):\s*(.+?)\s*\((.+?)\)$/);
       if (match) {
@@ -98,12 +95,12 @@ export class OpenCodeCLIAdapter implements CLIToolAdapter {
         }
       }
     }
-    
+
     // If we couldn't parse anything, return fallback
     if (models.length === 0) {
       return [{ id: 'default', name: 'Default Model' }];
     }
-    
+
     return models;
   }
 
@@ -114,7 +111,7 @@ export class OpenCodeCLIAdapter implements CLIToolAdapter {
     const session = options?.session || this.config.session;
     if (session) {
       args.push('--session', session);
-      
+
       const continueSession = options?.continueSession ?? this.config.continueSession ?? true;
       if (continueSession) {
         args.push('--continue');
@@ -133,7 +130,7 @@ export class OpenCodeCLIAdapter implements CLIToolAdapter {
     console.log('[OpenCode] Executing: opencode', args.join(' '), '(prompt via stdin)');
 
     const output = await this.spawnOpenCode(args, prompt, options?.cwd);
-    
+
     console.log('[OpenCode] Command completed, parsing output...');
     return this.parseJsonOutput(output);
   }
@@ -149,12 +146,15 @@ export class OpenCodeCLIAdapter implements CLIToolAdapter {
 
       let stdout = '';
       let stderr = '';
-      
+
       // Set a timeout (5 minutes for complex AI operations)
-      const timeout = setTimeout(() => {
-        proc.kill('SIGTERM');
-        reject(new Error('OpenCode CLI timed out after 5 minutes'));
-      }, 5 * 60 * 1000);
+      const timeout = setTimeout(
+        () => {
+          proc.kill('SIGTERM');
+          reject(new Error('OpenCode CLI timed out after 5 minutes'));
+        },
+        5 * 60 * 1000
+      );
 
       proc.stdout.on('data', (data) => {
         const chunk = data.toString();
@@ -171,7 +171,7 @@ export class OpenCodeCLIAdapter implements CLIToolAdapter {
 
       proc.on('close', (code) => {
         clearTimeout(timeout);
-        
+
         if (stderr) {
           console.warn('[OpenCode] stderr:', stderr);
         }
@@ -179,7 +179,9 @@ export class OpenCodeCLIAdapter implements CLIToolAdapter {
         if (code === 0) {
           resolve(stdout);
         } else {
-          reject(new Error(`OpenCode exited with code ${code}\nStderr: ${stderr}\nStdout: ${stdout}`));
+          reject(
+            new Error(`OpenCode exited with code ${code}\nStderr: ${stderr}\nStdout: ${stdout}`)
+          );
         }
       });
 
@@ -200,7 +202,10 @@ export class OpenCodeCLIAdapter implements CLIToolAdapter {
 
   private parseJsonOutput(output: string): string {
     // OpenCode with --format json outputs newline-delimited JSON events
-    const lines = output.trim().split('\n').filter(l => l.trim());
+    const lines = output
+      .trim()
+      .split('\n')
+      .filter((l) => l.trim());
     let fullResponse = '';
     const errors: Array<{ name: string; message: string; providerID?: string }> = [];
 
@@ -209,19 +214,20 @@ export class OpenCodeCLIAdapter implements CLIToolAdapter {
     for (const line of lines) {
       try {
         const event = JSON.parse(line);
-        
+
         // Check for error events first
         if (event.type === 'error') {
           const errorData = event.error || {};
           const errorName = errorData.name || 'UnknownError';
-          const errorMessage = errorData.data?.message || errorData.message || 'An unknown error occurred';
+          const errorMessage =
+            errorData.data?.message || errorData.message || 'An unknown error occurred';
           const providerID = errorData.data?.providerID || errorData.providerID;
-          
+
           console.error(`[OpenCode] Error event received: ${errorName} - ${errorMessage}`);
           errors.push({ name: errorName, message: errorMessage, providerID });
           continue;
         }
-        
+
         // Look for text events with part.text field (current format)
         if (event.type === 'text' && event.part && event.part.text) {
           fullResponse += event.part.text;
@@ -251,11 +257,7 @@ export class OpenCodeCLIAdapter implements CLIToolAdapter {
     // If we collected any errors, throw the first one (most relevant)
     if (errors.length > 0) {
       const primaryError = errors[0];
-      throw new OpenCodeError(
-        primaryError.message,
-        primaryError.name,
-        primaryError.providerID
-      );
+      throw new OpenCodeError(primaryError.message, primaryError.name, primaryError.providerID);
     }
 
     if (!fullResponse) {

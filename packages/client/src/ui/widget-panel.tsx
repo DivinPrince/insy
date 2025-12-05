@@ -1,12 +1,27 @@
 import { h } from 'preact';
 import { useState, useRef, useEffect } from 'preact/hooks';
 import type { FunctionComponent } from 'preact';
-import type { RecentEdit, ToolInfo, ModelInfo, ElementInfo, CodeChangeAction, ReactContext, FrameworkContext } from '@pixelcode/shared';
+import type {
+  RecentEdit,
+  ElementInfo,
+  CodeChangeAction,
+  ReactContext,
+  FrameworkContext,
+} from '@pixelcode/shared';
 import { StatusBadge } from './status-badge.js';
 
 // Cursor icon for element selector
 const CursorIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" />
     <path d="M13 13l6 6" />
   </svg>
@@ -14,7 +29,16 @@ const CursorIcon = () => (
 
 // Terminal icon for console logs
 const TerminalIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <polyline points="4 17 10 11 4 5" />
     <line x1="12" y1="19" x2="20" y2="19" />
   </svg>
@@ -22,7 +46,16 @@ const TerminalIcon = () => (
 
 // Send icon
 const SendIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <circle cx="12" cy="12" r="10" />
     <path d="M12 16l4-4-4-4" />
     <path d="M8 12h8" />
@@ -69,10 +102,6 @@ interface WidgetPanelProps {
   onSelectElement?: () => void;
   onTagConsole?: () => void;
   isSelectingElement?: boolean;
-  // Model selection
-  models?: ModelInfo[];
-  selectedModel?: string;
-  onModelChange?: (modelId: string) => void;
   // Undo/Keep actions
   hasChanges?: boolean;
   onUndoAll?: () => void;
@@ -108,9 +137,6 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
   onSelectElement,
   onTagConsole,
   isSelectingElement,
-  models,
-  selectedModel,
-  onModelChange,
   hasChanges,
   onUndoAll,
   onKeepAll,
@@ -130,7 +156,7 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
   const [showElementDetails, setShowElementDetails] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  
+
   // Extract React context info if available
   const reactContext = selectedElementContext as ReactContext | null;
   const componentName = reactContext?.componentName;
@@ -210,12 +236,17 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-          {hasChanges && (
-            <span style={{ fontSize: '12px', color: '#666' }}>1 File</span>
-          )}
+          {hasChanges && <span style={{ fontSize: '12px', color: '#666' }}>1 File</span>}
           {!hasChanges && (
             <>
-              <span style={{ fontSize: '16px', fontWeight: '600', color: '#000', letterSpacing: '-0.02em' }}>
+              <span
+                style={{
+                  fontSize: '16px',
+                  fontWeight: '600',
+                  color: '#000',
+                  letterSpacing: '-0.02em',
+                }}
+              >
                 PixelCode
               </span>
               <StatusBadge connected={connected} />
@@ -242,7 +273,14 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
               }}
               title="Start a new conversation"
             >
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <svg
+                width="12"
+                height="12"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+              >
                 <line x1="12" y1="5" x2="12" y2="19" />
                 <line x1="5" y1="12" x2="19" y2="12" />
               </svg>
@@ -307,7 +345,14 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
             }}
             title="Recent edits"
           >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+            >
               <circle cx="12" cy="12" r="10" />
               <polyline points="12 6 12 12 16 14" />
             </svg>
@@ -343,7 +388,16 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
             overflow: 'auto',
           }}
         >
-          <div style={{ fontSize: '11px', fontWeight: '600', color: '#666', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+          <div
+            style={{
+              fontSize: '11px',
+              fontWeight: '600',
+              color: '#666',
+              marginBottom: '8px',
+              textTransform: 'uppercase',
+              letterSpacing: '0.5px',
+            }}
+          >
             Recent Edits
           </div>
           {recentEdits.length === 0 ? (
@@ -404,11 +458,15 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
             }}
           >
             <div style={{ fontSize: '32px', marginBottom: '12px', opacity: 0.5 }}>💬</div>
-            <div style={{ fontSize: '14px', fontWeight: '500', color: '#666', marginBottom: '4px' }}>
+            <div
+              style={{ fontSize: '14px', fontWeight: '500', color: '#666', marginBottom: '4px' }}
+            >
               {selectedElementInfo ? 'Element selected' : 'Start a conversation'}
             </div>
             <div style={{ fontSize: '12px', color: '#999' }}>
-              {selectedElementInfo ? 'Describe what you want to change' : 'Select an element or type a message'}
+              {selectedElementInfo
+                ? 'Describe what you want to change'
+                : 'Select an element or type a message'}
             </div>
           </div>
         )}
@@ -431,7 +489,9 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
                   display: 'inline-flex',
                   alignItems: 'center',
                   gap: '4px',
-                  backgroundColor: msg.taggedElement.componentName ? 'rgba(34, 197, 94, 0.2)' : 'rgba(255, 255, 255, 0.15)',
+                  backgroundColor: msg.taggedElement.componentName
+                    ? 'rgba(34, 197, 94, 0.2)'
+                    : 'rgba(255, 255, 255, 0.15)',
                   borderRadius: '4px',
                   padding: '3px 8px',
                   fontSize: '10px',
@@ -443,17 +503,33 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
                 }}
               >
                 {msg.taggedElement.componentName ? (
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
                     <circle cx="12" cy="12" r="10" />
                     <path d="M12 6v6l4 2" />
                   </svg>
                 ) : (
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
                     <polyline points="16 18 22 12 16 6" />
                     <polyline points="8 6 2 12 8 18" />
                   </svg>
                 )}
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                <span
+                  style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                >
                   {msg.taggedElement.componentName ? (
                     <>
                       {msg.taggedElement.componentName}
@@ -466,8 +542,14 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
                   ) : (
                     <>
                       &lt;{msg.taggedElement.tagName.toLowerCase()}
-                      {msg.taggedElement.id && <span style={{ color: '#c4b5fd' }}>#{msg.taggedElement.id}</span>}
-                      {msg.taggedElement.className && <span style={{ color: '#86efac' }}>.{msg.taggedElement.className.split(' ')[0]}</span>}
+                      {msg.taggedElement.id && (
+                        <span style={{ color: '#c4b5fd' }}>#{msg.taggedElement.id}</span>
+                      )}
+                      {msg.taggedElement.className && (
+                        <span style={{ color: '#86efac' }}>
+                          .{msg.taggedElement.className.split(' ')[0]}
+                        </span>
+                      )}
                       &gt;
                     </>
                   )}
@@ -487,15 +569,15 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
                       color: '#fff',
                     }
                   : msg.type === 'error'
-                  ? {
-                      backgroundColor: '#fef2f2',
-                      color: '#dc2626',
-                      border: '1px solid #fecaca',
-                    }
-                  : {
-                      backgroundColor: '#f5f5f5',
-                      color: '#333',
-                    }),
+                    ? {
+                        backgroundColor: '#fef2f2',
+                        color: '#dc2626',
+                        border: '1px solid #fecaca',
+                      }
+                    : {
+                        backgroundColor: '#f5f5f5',
+                        color: '#333',
+                      }),
               }}
             >
               {msg.content}
@@ -556,9 +638,11 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
                 // Calculate line changes
                 const beforeLines = d.before ? d.before.split('\n').length : 0;
                 const afterLines = d.after ? d.after.split('\n').length : 0;
-                const additions = d.action === 'create' ? afterLines : Math.max(0, afterLines - beforeLines);
-                const deletions = d.action === 'delete' ? beforeLines : Math.max(0, beforeLines - afterLines);
-                
+                const additions =
+                  d.action === 'create' ? afterLines : Math.max(0, afterLines - beforeLines);
+                const deletions =
+                  d.action === 'delete' ? beforeLines : Math.max(0, beforeLines - afterLines);
+
                 return (
                   <div
                     key={d.diffId}
@@ -573,64 +657,96 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
                       border: '1px solid #e5e5e5',
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
+                    <div
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '8px',
+                        flex: 1,
+                        minWidth: 0,
+                      }}
+                    >
                       {/* Action icon */}
                       {d.action === 'create' && (
-                        <span style={{ 
-                          color: '#16a34a',
-                          fontSize: '14px',
-                          fontWeight: '600',
-                          width: '16px',
-                          textAlign: 'center',
-                        }}>+</span>
+                        <span
+                          style={{
+                            color: '#16a34a',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            width: '16px',
+                            textAlign: 'center',
+                          }}
+                        >
+                          +
+                        </span>
                       )}
                       {d.action === 'delete' && (
-                        <span style={{ 
-                          color: '#dc2626',
-                          fontSize: '14px',
-                          fontWeight: '600',
-                          width: '16px',
-                          textAlign: 'center',
-                        }}>−</span>
+                        <span
+                          style={{
+                            color: '#dc2626',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            width: '16px',
+                            textAlign: 'center',
+                          }}
+                        >
+                          −
+                        </span>
                       )}
                       {d.action === 'modify' && (
-                        <span style={{ 
-                          color: '#ca8a04',
-                          fontSize: '14px',
-                          fontWeight: '600',
-                          width: '16px',
-                          textAlign: 'center',
-                        }}>~</span>
+                        <span
+                          style={{
+                            color: '#ca8a04',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            width: '16px',
+                            textAlign: 'center',
+                          }}
+                        >
+                          ~
+                        </span>
                       )}
                       {/* Filename */}
-                      <span style={{ 
-                        fontSize: '13px', 
-                        color: '#333',
-                        fontWeight: '500',
-                        overflow: 'hidden',
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap',
-                      }}>
+                      <span
+                        style={{
+                          fontSize: '13px',
+                          color: '#333',
+                          fontWeight: '500',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                        }}
+                      >
                         {d.file.split(/[/\\]/).pop() || d.file}
                       </span>
                     </div>
                     {/* Line changes */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
+                    <div
+                      style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}
+                    >
                       {additions > 0 && (
-                        <span style={{ 
-                          fontSize: '12px', 
-                          color: '#16a34a',
-                          fontWeight: '600',
-                          fontFamily: 'SF Mono, Monaco, monospace',
-                        }}>+{additions}</span>
+                        <span
+                          style={{
+                            fontSize: '12px',
+                            color: '#16a34a',
+                            fontWeight: '600',
+                            fontFamily: 'SF Mono, Monaco, monospace',
+                          }}
+                        >
+                          +{additions}
+                        </span>
                       )}
                       {deletions > 0 && (
-                        <span style={{ 
-                          fontSize: '12px', 
-                          color: '#dc2626',
-                          fontWeight: '600',
-                          fontFamily: 'SF Mono, Monaco, monospace',
-                        }}>-{deletions}</span>
+                        <span
+                          style={{
+                            fontSize: '12px',
+                            color: '#dc2626',
+                            fontWeight: '600',
+                            fontFamily: 'SF Mono, Monaco, monospace',
+                          }}
+                        >
+                          -{deletions}
+                        </span>
                       )}
                     </div>
                   </div>
@@ -639,7 +755,7 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
             </div>
           </div>
         )}
-        
+
         <div ref={messagesEndRef} />
       </div>
 
@@ -746,18 +862,36 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
                 >
                   {/* Component/Element icon */}
                   {componentName ? (
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                    >
                       <circle cx="12" cy="12" r="10" />
                       <path d="M12 6v6l4 2" />
                     </svg>
                   ) : (
-                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <svg
+                      width="12"
+                      height="12"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
                       <polyline points="16 18 22 12 16 6" />
                       <polyline points="8 6 2 12 8 18" />
                     </svg>
                   )}
                   {/* Display component name or tag */}
-                  <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <span
+                    style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
+                  >
                     {componentName ? (
                       <>
                         <span style={{ color: '#166534' }}>{componentName}</span>
@@ -768,23 +902,27 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
                     ) : (
                       <>
                         &lt;{selectedElementInfo.tagName.toLowerCase()}
-                        {selectedElementInfo.id && <span style={{ color: '#9333ea' }}>#{selectedElementInfo.id}</span>}
+                        {selectedElementInfo.id && (
+                          <span style={{ color: '#9333ea' }}>#{selectedElementInfo.id}</span>
+                        )}
                         {selectedElementInfo.className && (
-                          <span style={{ color: '#059669' }}>.{selectedElementInfo.className.split(' ')[0]}</span>
+                          <span style={{ color: '#059669' }}>
+                            .{selectedElementInfo.className.split(' ')[0]}
+                          </span>
                         )}
                         &gt;
                       </>
                     )}
                   </span>
                   {/* Expand/collapse indicator */}
-                  <svg 
-                    width="10" 
-                    height="10" 
-                    viewBox="0 0 24 24" 
-                    fill="none" 
-                    stroke="currentColor" 
+                  <svg
+                    width="10"
+                    height="10"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
                     strokeWidth="2"
-                    style={{ 
+                    style={{
                       transform: showElementDetails ? 'rotate(180deg)' : 'rotate(0deg)',
                       transition: 'transform 0.15s ease',
                       opacity: 0.5,
@@ -793,7 +931,7 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
                     <path d="M6 9l6 6 6-6" />
                   </svg>
                 </div>
-                
+
                 {/* Remove button */}
                 <button
                   onClick={onClearElement}
@@ -810,13 +948,20 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
                   }}
                   title="Remove element"
                 >
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
                     <line x1="18" y1="6" x2="6" y2="18" />
                     <line x1="6" y1="6" x2="18" y2="18" />
                   </svg>
                 </button>
               </div>
-              
+
               {/* Expanded details panel */}
               {showElementDetails && (
                 <div
@@ -834,11 +979,33 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
                   {/* Source file location */}
                   {sourceFile && (
                     <div style={{ marginBottom: '8px' }}>
-                      <div style={{ color: '#6b7280', fontSize: '10px', marginBottom: '2px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      <div
+                        style={{
+                          color: '#6b7280',
+                          fontSize: '10px',
+                          marginBottom: '2px',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                        }}
+                      >
                         Source
                       </div>
-                      <div style={{ color: '#2563eb', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                      <div
+                        style={{
+                          color: '#2563eb',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px',
+                        }}
+                      >
+                        <svg
+                          width="10"
+                          height="10"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                        >
                           <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
                           <polyline points="14 2 14 8 20 8" />
                         </svg>
@@ -849,25 +1016,39 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
                       </div>
                     </div>
                   )}
-                  
+
                   {/* Component tree path */}
                   {componentPath && componentPath.length > 0 && (
                     <div>
-                      <div style={{ color: '#6b7280', fontSize: '10px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      <div
+                        style={{
+                          color: '#6b7280',
+                          fontSize: '10px',
+                          marginBottom: '4px',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                        }}
+                      >
                         Component Tree
                       </div>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                         {componentPath.slice(-6).map((comp, i, arr) => (
-                          <div 
-                            key={i} 
-                            style={{ 
-                              display: 'flex', 
+                          <div
+                            key={i}
+                            style={{
+                              display: 'flex',
                               alignItems: 'center',
                               color: i === arr.length - 1 ? '#166534' : '#6b7280',
                               fontWeight: i === arr.length - 1 ? '600' : '400',
                             }}
                           >
-                            <span style={{ marginLeft: `${i * 8}px`, marginRight: '4px', color: '#d1d5db' }}>
+                            <span
+                              style={{
+                                marginLeft: `${i * 8}px`,
+                                marginRight: '4px',
+                                color: '#d1d5db',
+                              }}
+                            >
                               {i === arr.length - 1 ? '└─' : '├─'}
                             </span>
                             {comp}
@@ -881,14 +1062,30 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
                       </div>
                     </div>
                   )}
-                  
+
                   {/* HTML snippet */}
                   {!componentPath && selectedElementInfo.html && (
                     <div>
-                      <div style={{ color: '#6b7280', fontSize: '10px', marginBottom: '4px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>
+                      <div
+                        style={{
+                          color: '#6b7280',
+                          fontSize: '10px',
+                          marginBottom: '4px',
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.5px',
+                        }}
+                      >
                         HTML
                       </div>
-                      <div style={{ color: '#374151', whiteSpace: 'pre-wrap', wordBreak: 'break-all', maxHeight: '60px', overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          color: '#374151',
+                          whiteSpace: 'pre-wrap',
+                          wordBreak: 'break-all',
+                          maxHeight: '60px',
+                          overflow: 'hidden',
+                        }}
+                      >
                         {selectedElementInfo.html.substring(0, 200)}
                         {selectedElementInfo.html.length > 200 && '...'}
                       </div>
@@ -898,7 +1095,7 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
               )}
             </div>
           )}
-          
+
           {/* Textarea */}
           <textarea
             ref={textareaRef}
@@ -906,7 +1103,13 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
             onInput={(e) => setInputValue((e.target as HTMLTextAreaElement).value)}
             onKeyDown={handleKeyDown}
             disabled={!connected || isLoading}
-            placeholder={connected ? (selectedElementInfo ? "What would you like to change?" : "Select an element or describe what you need...") : "Connecting..."}
+            placeholder={
+              connected
+                ? selectedElementInfo
+                  ? 'What would you like to change?'
+                  : 'Select an element or describe what you need...'
+                : 'Connecting...'
+            }
             rows={1}
             style={{
               width: '100%',
@@ -924,7 +1127,7 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
               opacity: connected ? 1 : 0.5,
             }}
           />
-          
+
           {/* Action bar */}
           <div
             style={{
@@ -987,40 +1190,6 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
                 <TerminalIcon />
                 <span>Console</span>
               </button>
-
-              {/* Dropdown for model - compact */}
-              {models && models.length > 0 && (
-                <div style={{ position: 'relative', marginLeft: '4px', maxWidth: '100px' }}>
-                  <select
-                    value={selectedModel || ''}
-                    onChange={(e) => onModelChange?.((e.target as HTMLSelectElement).value)}
-                    disabled={!connected || isLoading}
-                    style={{
-                      appearance: 'none',
-                      background: 'transparent',
-                      border: 'none',
-                      color: '#999',
-                      fontSize: '12px',
-                      fontFamily: 'inherit',
-                      cursor: connected && !isLoading ? 'pointer' : 'not-allowed',
-                      padding: '4px 16px 4px 4px',
-                      maxWidth: '100%',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
-                      backgroundRepeat: 'no-repeat',
-                      backgroundPosition: 'right 0 center',
-                    }}
-                  >
-                    {models.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
             </div>
 
             {/* Right side - Send button */}
@@ -1052,14 +1221,20 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
         {/* Keyboard hint - only show when no diff */}
         {!showDiff && (
           <div style={{ marginTop: '6px', fontSize: '11px', color: '#999', textAlign: 'center' }}>
-            Press <kbd style={{ 
-              padding: '2px 6px', 
-              backgroundColor: '#f5f5f5', 
-              borderRadius: '4px',
-              fontFamily: 'SF Mono, Monaco, monospace',
-              fontSize: '10px',
-              border: '1px solid #e5e5e5',
-            }}>⌘+Shift+E</kbd> to select element
+            Press{' '}
+            <kbd
+              style={{
+                padding: '2px 6px',
+                backgroundColor: '#f5f5f5',
+                borderRadius: '4px',
+                fontFamily: 'SF Mono, Monaco, monospace',
+                fontSize: '10px',
+                border: '1px solid #e5e5e5',
+              }}
+            >
+              ⌘+Shift+E
+            </kbd>{' '}
+            to select element
           </div>
         )}
       </div>

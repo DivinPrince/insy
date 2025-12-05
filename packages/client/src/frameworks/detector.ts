@@ -52,7 +52,7 @@ function safeSerialize(obj: unknown, maxDepth = 3, seen = new WeakSet()): unknow
   // Handle arrays
   if (Array.isArray(obj)) {
     if (maxDepth <= 0) return '[Array]';
-    return obj.slice(0, 10).map(item => safeSerialize(item, maxDepth - 1, seen));
+    return obj.slice(0, 10).map((item) => safeSerialize(item, maxDepth - 1, seen));
   }
 
   // Handle objects
@@ -74,7 +74,10 @@ function safeSerialize(obj: unknown, maxDepth = 3, seen = new WeakSet()): unknow
 
     // Skip certain problematic objects by constructor name
     const constructorName = obj.constructor?.name;
-    if (constructorName && ['Provider', 'Consumer', 'Context', 'Ref', 'FiberNode'].includes(constructorName)) {
+    if (
+      constructorName &&
+      ['Provider', 'Consumer', 'Context', 'Ref', 'FiberNode'].includes(constructorName)
+    ) {
       return `[${constructorName}]`;
     }
 
@@ -289,14 +292,14 @@ export async function getReactStack(element: Element): Promise<StackFrame[]> {
           });
         }
       },
-      true,
+      true
     );
 
     const resolvedStack = await Promise.all(
       unresolvedStack.map(async (frame) => ({
         name: frame.name,
         source: await frame.sourcePromise,
-      })),
+      }))
     );
 
     return resolvedStack.filter((frame) => frame.source !== null);
@@ -312,7 +315,7 @@ export async function getReactStack(element: Element): Promise<StackFrame[]> {
 export async function captureReactContextAsync(element: HTMLElement): Promise<ReactContext | null> {
   try {
     const stack = await getReactStack(element);
-    
+
     // Find the first user component (not internal)
     let componentName: string | undefined;
     let source: { fileName: string; lineNumber: number; columnNumber?: number } | undefined;
@@ -320,7 +323,7 @@ export async function captureReactContextAsync(element: HTMLElement): Promise<Re
 
     for (const frame of stack) {
       fiberPath.push(frame.name);
-      
+
       if (isSourceComponentName(frame.name)) {
         if (!componentName) {
           componentName = frame.name;
@@ -337,9 +340,7 @@ export async function captureReactContextAsync(element: HTMLElement): Promise<Re
 
     // Also get props/state from fiber (fallback to old method)
     const fiberKey = Object.keys(element).find(
-      (key) =>
-        key.startsWith('__reactFiber') ||
-        key.startsWith('__reactInternalInstance')
+      (key) => key.startsWith('__reactFiber') || key.startsWith('__reactInternalInstance')
     );
 
     let props: Record<string, unknown> | undefined;
@@ -373,9 +374,7 @@ export async function captureReactContextAsync(element: HTMLElement): Promise<Re
  */
 export function captureReactContext(element: HTMLElement): ReactContext | null {
   const fiberKey = Object.keys(element).find(
-    (key) =>
-      key.startsWith('__reactFiber') ||
-      key.startsWith('__reactInternalInstance')
+    (key) => key.startsWith('__reactFiber') || key.startsWith('__reactInternalInstance')
   );
 
   if (!fiberKey) return null;
@@ -441,12 +440,13 @@ export function captureHtmlContext(element: HTMLElement): HtmlContext {
   };
 }
 
-export function captureFrameworkContext(
+export async function captureFrameworkContext(
   element: HTMLElement,
   framework: Framework
-): FrameworkContext | undefined {
+): Promise<FrameworkContext | undefined> {
   if (framework.type === 'react' || framework.type === 'nextjs') {
-    return captureReactContext(element) || undefined;
+    // Use async version with bippy for proper source file detection
+    return (await captureReactContextAsync(element)) || undefined;
   }
 
   if (framework.type === 'vue') {

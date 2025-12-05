@@ -7,6 +7,8 @@ interface ChangeRecord {
   file: string;
   backupPath: string;
   timestamp: number;
+  isApplied: boolean; // Track if changes are currently applied
+  modifiedCode: string; // Store modified code for re-applying after toggle
 }
 
 export class FileWriter {
@@ -29,12 +31,14 @@ export class FileWriter {
       // Write modified code
       await writeFile(diff.file, diff.modifiedCode, 'utf-8');
 
-      // Record change
+      // Record change with isApplied=true and store modifiedCode
       await this.recordChange({
         diffId: diff.id,
         file: diff.file,
         backupPath,
         timestamp: Date.now(),
+        isApplied: true,
+        modifiedCode: diff.modifiedCode,
       });
 
       console.log(`[FileWriter] Applied changes to ${diff.file}`);
@@ -73,6 +77,45 @@ export class FileWriter {
       console.error('[FileWriter] Error undoing changes:', error);
       return false;
     }
+  }
+
+  /**
+   * Toggle changes on/off without deleting backup.
+   * Returns the new state: true = changes applied, false = original restored
+   */
+  async toggle(diffId: string): Promise<{ success: boolean; isApplied: boolean }> {
+    try {
+      const change = await this.getChange(diffId);
+      if (!change) {
+        return { success: false, isApplied: false };
+      }
+
+      if (change.isApplied) {
+        // Currently showing changes, restore original
+        const backupContent = await readFile(change.backupPath, 'utf-8');
+        await writeFile(change.file, backupContent, 'utf-8');
+        await this.updateChangeRecord(diffId, { isApplied: false });
+        console.log(`[FileWriter] Toggled OFF - restored original for ${change.file}`);
+        return { success: true, isApplied: false };
+      } else {
+        // Currently showing original, re-apply changes
+        await writeFile(change.file, change.modifiedCode, 'utf-8');
+        await this.updateChangeRecord(diffId, { isApplied: true });
+        console.log(`[FileWriter] Toggled ON - re-applied changes for ${change.file}`);
+        return { success: true, isApplied: true };
+      }
+    } catch (error) {
+      console.error('[FileWriter] Error toggling changes:', error);
+      return { success: false, isApplied: false };
+    }
+  }
+
+  /**
+   * Get current applied state for a diff
+   */
+  async getAppliedState(diffId: string): Promise<boolean> {
+    const change = await this.getChange(diffId);
+    return change?.isApplied ?? false;
   }
 
   /**
@@ -115,6 +158,19 @@ export class FileWriter {
     history.push(change);
     await mkdir(path.dirname(historyFile), { recursive: true });
     await writeFile(historyFile, JSON.stringify(history, null, 2));
+  }
+
+  private async updateChangeRecord(diffId: string, updates: Partial<ChangeRecord>): Promise<void> {
+    try {
+      const historyFile = path.join(this.backupDir, 'history.json');
+      const content = await readFile(historyFile, 'utf-8');
+      let history: ChangeRecord[] = JSON.parse(content);
+
+      history = history.map((c) => (c.diffId === diffId ? { ...c, ...updates } : c));
+      await writeFile(historyFile, JSON.stringify(history, null, 2));
+    } catch {
+      // History file may not exist
+    }
   }
 
   private async getChange(diffId: string): Promise<ChangeRecord | null> {

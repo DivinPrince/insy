@@ -25,15 +25,13 @@
     "diff": "^5.1.0",
     "fast-glob": "^3.3.2",
     "hono": "^4.10.7",
-    "picocolors": "^1.0.0",
-    "ws": "^8.16.0"
+    "picocolors": "^1.0.0"
   },
   "devDependencies": {
     "@pixelcode/shared": "workspace:*",
     "@types/babel__traverse": "^7.20.5",
     "@types/diff": "^5.0.9",
     "@types/node": "^20.10.6",
-    "@types/ws": "^8.5.10",
     "typescript": "^5.3.3"
   }
 }

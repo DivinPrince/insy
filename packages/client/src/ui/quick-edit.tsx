@@ -3,7 +3,6 @@ import { useState, useRef, useEffect } from 'preact/hooks';
 import type { FunctionComponent } from 'preact';
 import type {
   ElementInfo,
-  ModelInfo,
   CodeChangeAction,
   FrameworkContext,
   ReactContext,
@@ -30,11 +29,6 @@ export interface QuickEditProps {
   state: QuickEditState;
   statusMessage?: string;
 
-  // Model selection
-  models?: ModelInfo[];
-  selectedModel?: string;
-  onModelChange?: (modelId: string) => void;
-
   // Actions
   onSubmit: (instanceId: string, prompt: string) => void;
   onClose: () => void;
@@ -44,6 +38,8 @@ export interface QuickEditProps {
   diffs?: DiffPreview[];
   onAcceptChanges?: (instanceId: string, diffIds: string[]) => void;
   onRejectChanges?: (instanceId: string) => void;
+  onTogglePreview?: (instanceId: string, diffId: string) => void;
+  onToggleAllPreviews?: (instanceId: string, diffIds: string[]) => void;
 
   // Compact mode
   isCompact?: boolean;
@@ -110,6 +106,38 @@ const ChatIcon = () => (
   </svg>
 );
 
+const EyeIcon = () => (
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+    <circle cx="12" cy="12" r="3" />
+  </svg>
+);
+
+const EyeOffIcon = () => (
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+    <line x1="1" y1="1" x2="23" y2="23" />
+  </svg>
+);
+
 export const QuickEdit: FunctionComponent<QuickEditProps> = ({
   instanceId,
   targetElement,
@@ -117,24 +145,34 @@ export const QuickEdit: FunctionComponent<QuickEditProps> = ({
   frameworkContext,
   state,
   statusMessage,
-  models,
-  selectedModel,
-  onModelChange,
   onSubmit,
   onClose,
   onCompact,
   diffs = [],
   onAcceptChanges,
   onRejectChanges,
+  onTogglePreview,
+  onToggleAllPreviews,
   isCompact = false,
 }) => {
   const [inputValue, setInputValue] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Track which diffs have preview enabled (changes visible)
+  const [previewEnabled, setPreviewEnabled] = useState<Record<string, boolean>>(() => {
+    // Default: all diffs start with preview ON (changes are auto-applied)
+    const initial: Record<string, boolean> = {};
+    diffs.forEach((d) => {
+      initial[d.diffId] = true;
+    });
+    return initial;
+  });
+
+  // Check if all previews are enabled (for toggle all button state)
+  const allPreviewsEnabled = diffs.length > 0 && diffs.every((d) => previewEnabled[d.diffId]);
 
   // Extract component info if React
   const reactContext = frameworkContext as ReactContext | null;
   const componentName = reactContext?.componentName;
-  const sourceFile = reactContext?.source?.fileName;
 
   // Calculate position relative to target element
   const [position, setPosition] = useState({ x: 0, y: 0 });
@@ -435,43 +473,12 @@ export const QuickEdit: FunctionComponent<QuickEditProps> = ({
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'space-between',
+                  justifyContent: 'flex-end',
                   padding: '8px 10px',
                   borderTop: '1px solid #e5e5e5',
                   backgroundColor: '#fafafa',
                 }}
               >
-                {/* Model selector */}
-                {models && models.length > 0 && (
-                  <select
-                    value={selectedModel || ''}
-                    onChange={(e) => onModelChange?.((e.target as HTMLSelectElement).value)}
-                    style={{
-                      appearance: 'none',
-                      background: 'transparent',
-                      border: 'none',
-                      color: '#999',
-                      fontSize: '11px',
-                      fontFamily: 'inherit',
-                      cursor: 'pointer',
-                      padding: '4px 16px 4px 4px',
-                      maxWidth: '150px',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                      backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23999' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E")`,
-                      backgroundRepeat: 'no-repeat',
-                      backgroundPosition: 'right 0 center',
-                    }}
-                  >
-                    {models.map((model) => (
-                      <option key={model.id} value={model.id}>
-                        {model.name}
-                      </option>
-                    ))}
-                  </select>
-                )}
-
                 {/* Send button */}
                 <button
                   type="button"
@@ -555,6 +562,39 @@ export const QuickEdit: FunctionComponent<QuickEditProps> = ({
                 title="Reject changes"
               >
                 <XIcon />
+              </button>
+
+              {/* Toggle All - Show/hide all changes */}
+              <button
+                onClick={() => {
+                  const diffIds = diffs.map((d) => d.diffId);
+                  // Toggle local state for all diffs
+                  const newState = !allPreviewsEnabled;
+                  setPreviewEnabled((prev) => {
+                    const updated: Record<string, boolean> = {};
+                    diffs.forEach((d) => {
+                      updated[d.diffId] = newState;
+                    });
+                    return { ...prev, ...updated };
+                  });
+                  // Call handler to toggle on server
+                  onToggleAllPreviews?.(instanceId, diffIds);
+                }}
+                style={{
+                  background: 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                  padding: '6px',
+                  borderRadius: '6px',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'all 0.15s ease',
+                  color: allPreviewsEnabled ? '#3b82f6' : '#999',
+                }}
+                title={allPreviewsEnabled ? 'Hide all changes (show original)' : 'Show all changes'}
+              >
+                {allPreviewsEnabled ? <EyeIcon /> : <EyeOffIcon />}
               </button>
 
               {/* File name */}
@@ -683,7 +723,7 @@ export const QuickEdit: FunctionComponent<QuickEditProps> = ({
                       {diff.file.split(/[/\\]/).pop() || diff.file}
                     </span>
                   </div>
-                  {/* Line changes */}
+                  {/* Line changes and toggle */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
                     {additions > 0 && (
                       <span
@@ -709,6 +749,33 @@ export const QuickEdit: FunctionComponent<QuickEditProps> = ({
                         -{deletions}
                       </span>
                     )}
+                    {/* Toggle preview button */}
+                    <button
+                      onClick={() => {
+                        const newState = !previewEnabled[diff.diffId];
+                        setPreviewEnabled((prev) => ({ ...prev, [diff.diffId]: newState }));
+                        onTogglePreview?.(instanceId, diff.diffId);
+                      }}
+                      style={{
+                        background: 'transparent',
+                        border: 'none',
+                        cursor: 'pointer',
+                        padding: '2px',
+                        borderRadius: '4px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        color: previewEnabled[diff.diffId] ? '#3b82f6' : '#999',
+                        marginLeft: '4px',
+                      }}
+                      title={
+                        previewEnabled[diff.diffId]
+                          ? 'Hide changes (show original)'
+                          : 'Show changes'
+                      }
+                    >
+                      {previewEnabled[diff.diffId] ? <EyeIcon /> : <EyeOffIcon />}
+                    </button>
                   </div>
                 </div>
               );
