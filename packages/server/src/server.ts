@@ -25,7 +25,11 @@ import { DiffGenerator } from './modifier/diff.js';
 import { FileWriter } from './filesystem/writer.js';
 import { ConfigLoader } from './config/loader.js';
 import { AdapterRegistry } from './adapters/registry.js';
-import { buildContextOnlyPrompt, buildOpenCodePrompt, parseOpenCodeResponse } from './prompts/builder.js';
+import {
+  buildContextOnlyPrompt,
+  buildOpenCodePrompt,
+  parseOpenCodeResponse,
+} from './prompts/builder.js';
 import { parseStructuredResponse, isStructuredResponse } from './prompts/parser.js';
 import type { CLIToolAdapter } from './adapters/interface.js';
 import { OpenCodeError } from './adapters/opencode-cli.js';
@@ -48,13 +52,16 @@ export class PixelCodeServer {
   private currentAdapter?: CLIToolAdapter;
   private elementContexts = new Map<string, ElementContext & { projectPath?: string }>();
   private pendingDiffs = new Map<string, any>();
-  
+
   // Per-project service cache
-  private projectServices = new Map<string, {
-    sourceFinder: SourceFileFinder;
-    diffGenerator: DiffGenerator;
-    fileWriter: FileWriter;
-  }>();
+  private projectServices = new Map<
+    string,
+    {
+      sourceFinder: SourceFileFinder;
+      diffGenerator: DiffGenerator;
+      fileWriter: FileWriter;
+    }
+  >();
 
   constructor(private options: ServerOptions = {}) {
     this.app = new Hono();
@@ -65,11 +72,11 @@ export class PixelCodeServer {
 
     this.setupRoutes();
   }
-  
+
   // Get or create services for a specific project path
   private getProjectServices(projectPath?: string) {
     const root = projectPath || this.defaultProjectRoot;
-    
+
     let services = this.projectServices.get(root);
     if (!services) {
       console.log(`[Server] Creating services for project: ${root}`);
@@ -80,7 +87,7 @@ export class PixelCodeServer {
       };
       this.projectServices.set(root, services);
     }
-    
+
     return services;
   }
 
@@ -114,13 +121,13 @@ export class PixelCodeServer {
       try {
         const clientPath = path.join(__dirname, '../../client/dist/client.js');
         const content = await readFile(clientPath, 'utf-8');
-        
+
         // Load config and inject it into the client script
         const config = await this.configLoader.load();
         const projectRoot = config.project?.path || this.options.projectRoot || process.cwd();
         const host = config.server?.host || this.options.host || 'localhost';
         const port = config.server?.port || this.options.port || 7777;
-        
+
         const injectedConfig = `
 ;(function() {
   window.__PIXELCODE_CONFIG__ = {
@@ -131,7 +138,7 @@ export class PixelCodeServer {
   };
 })();
 `;
-        
+
         return c.text(injectedConfig + content, 200, {
           'Content-Type': 'application/javascript',
         });
@@ -168,7 +175,9 @@ export class PixelCodeServer {
       // Extract context and store projectPath
       const { elementId: _, projectPath, ...context } = payload;
       this.elementContexts.set(elementId, { ...context, projectPath });
-      console.log(`[Server] Element selected: ${elementId}${projectPath ? ` (project: ${projectPath})` : ''}`);
+      console.log(
+        `[Server] Element selected: ${elementId}${projectPath ? ` (project: ${projectPath})` : ''}`
+      );
     });
 
     // Prompt submission
@@ -227,14 +236,13 @@ export class PixelCodeServer {
 
       // Add user's prompt to context
       const contextWithPrompt = { ...context, prompt: payload.prompt };
-      const prompt = buildContextOnlyPrompt(
-        contextWithPrompt, 
-        payload.conversationHistory
-      );
+      const prompt = buildContextOnlyPrompt(contextWithPrompt, payload.conversationHistory);
 
       // Log conversation history if present
       if (payload.conversationHistory && payload.conversationHistory.length > 0) {
-        console.log(`[Server] Including ${payload.conversationHistory.length} messages in conversation history`);
+        console.log(
+          `[Server] Including ${payload.conversationHistory.length} messages in conversation history`
+        );
       }
 
       // Stage 3: Execute CLI - Use tool from payload or fallback to current adapter
@@ -264,10 +272,10 @@ export class PixelCodeServer {
       // Use sessionId from payload (unique per chat) or fallback to config
       const sessionId = payload.sessionId || config.opencode?.session || 'pixelcode-default';
       console.log(`[Server] Using session: ${sessionId}`);
-      
+
       const cliResponse = await adapter.run(prompt, {
         session: sessionId,
-        model: payload.model || config.opencode?.model,  // Use model from payload or config
+        model: payload.model || config.opencode?.model, // Use model from payload or config
         continueSession: config.opencode?.continueSession,
         cwd: projectPath,
       });
@@ -279,19 +287,19 @@ export class PixelCodeServer {
 
       // Stage 4: Parse response
       this.sendStatus(ws, payload.elementId, 'generating_diff', 'Parsing AI response...', 70);
-      
+
       // Check if response is in structured XML format
       if (isStructuredResponse(cliResponse)) {
         // New structured format - can handle multiple files
         const structured = parseStructuredResponse(cliResponse);
-        
+
         // Stage 5: Generate diffs for all changes
         this.sendStatus(ws, payload.elementId, 'generating_diff', 'Generating diffs...', 85);
         const multiDiff = await diffGenerator.generateMultiple(
           structured.changes,
           structured.summary
         );
-        
+
         // Store all diffs for approval (include projectPath for later use)
         const diffPayloads: Array<{
           diffId: string;
@@ -300,13 +308,27 @@ export class PixelCodeServer {
           diff: string;
           preview: { before: string; after: string };
         }> = [];
-        
+
+        // Get fileWriter for auto-applying
+        const { fileWriter } = this.getProjectServices(projectPath);
+
+        // Auto-apply all diffs immediately
+        this.sendStatus(ws, payload.elementId, 'generating_diff', 'Applying changes...', 90);
+
         for (const diff of multiDiff.results) {
           this.pendingDiffs.set(diff.id, { ...diff, projectPath });
-          
+
+          // Auto-apply the diff (creates backup automatically)
+          const applyResult = await fileWriter.applyDiff(diff);
+          if (!applyResult.success) {
+            console.error(
+              `[Server] Failed to auto-apply diff for ${diff.file}: ${applyResult.error}`
+            );
+          }
+
           // Find the corresponding action from changes
-          const change = structured.changes.find(c => c.filePath === diff.file);
-          
+          const change = structured.changes.find((c) => c.filePath === diff.file);
+
           diffPayloads.push({
             diffId: diff.id,
             file: diff.file,
@@ -318,13 +340,17 @@ export class PixelCodeServer {
             },
           });
         }
-        
-        // Send multi-diff to client
-        console.log(`[Server] Sending multi_diff:generated with ${diffPayloads.length} diff(s)`);
+
+        // Send multi-diff to client with autoApplied flag
+        console.log(
+          `[Server] Sending multi_diff:generated with ${diffPayloads.length} diff(s) (auto-applied)`
+        );
         for (const dp of diffPayloads) {
-          console.log(`[Server]   - ${dp.file} (${dp.action}): before=${dp.preview.before.length} bytes, after=${dp.preview.after.length} bytes`);
+          console.log(
+            `[Server]   - ${dp.file} (${dp.action}): before=${dp.preview.before.length} bytes, after=${dp.preview.after.length} bytes`
+          );
         }
-        
+
         this.wsServer?.send(ws, {
           id: crypto.randomUUID(),
           type: 'multi_diff:generated',
@@ -332,11 +358,12 @@ export class PixelCodeServer {
             instanceId: payload.elementId,
             summary: structured.summary,
             diffs: diffPayloads,
+            autoApplied: true,
           },
           timestamp: Date.now(),
         });
-        
-        // Note: Not sending status:complete here as the multi_diff:generated message 
+
+        // Note: Not sending status:complete here as the multi_diff:generated message
         // already transitions the client to diff review state
       } else {
         // Legacy format - AI didn't return structured XML
@@ -351,12 +378,12 @@ export class PixelCodeServer {
       }
     } catch (error) {
       console.error('[Server] Error handling prompt:', error);
-      
+
       // Handle OpenCode-specific errors with more context
       if (error instanceof OpenCodeError) {
         let errorCode = 'AI_ERROR';
         let userMessage = error.message;
-        
+
         // Provide more user-friendly messages for common errors
         if (error.errorName === 'ProviderAuthError') {
           errorCode = 'AUTH_ERROR';
@@ -368,25 +395,31 @@ export class PixelCodeServer {
           errorCode = 'PROVIDER_ERROR';
           userMessage = `AI provider error: ${error.message}`;
         }
-        
+
         this.wsServer?.sendError(ws, errorCode, userMessage, {
           errorName: error.errorName,
           providerID: error.providerID,
         });
-        
+
         // Also send a status update to clear the loading state
         this.sendStatus(ws, payload.elementId, 'error', userMessage, 0);
         return;
       }
-      
+
       this.wsServer?.sendError(
         ws,
         'PROCESSING_ERROR',
         error instanceof Error ? error.message : 'Unknown error'
       );
-      
+
       // Send error status to clear loading state
-      this.sendStatus(ws, payload.elementId, 'error', error instanceof Error ? error.message : 'An error occurred', 0);
+      this.sendStatus(
+        ws,
+        payload.elementId,
+        'error',
+        error instanceof Error ? error.message : 'An error occurred',
+        0
+      );
     }
   }
 
@@ -402,19 +435,39 @@ export class PixelCodeServer {
     // Extract projectPath and diff data
     const { projectPath, ...diff } = storedDiff;
 
-    if (payload.action === 'reject') {
-      // Permanent reject - restore from backup if applied, then delete
-      const { fileWriter } = this.getProjectServices(projectPath);
-      await fileWriter.undo(payload.diffId);
-      this.pendingDiffs.delete(payload.diffId);
-      console.log(`[Server] Rejected and cleaned up diff ${payload.diffId}`);
-      return;
-    }
-
     // Get fileWriter for the correct project
     const { fileWriter } = this.getProjectServices(projectPath);
 
-    // Apply changes (action === 'apply')
+    if (payload.action === 'reject') {
+      // Permanent reject - restore from backup, delete backup, remove from pending
+      await fileWriter.undo(payload.diffId);
+      await fileWriter.deleteBackup(payload.diffId);
+      this.pendingDiffs.delete(payload.diffId);
+      console.log(`[Server] Rejected diff ${payload.diffId} - restored and cleaned up`);
+      return;
+    }
+
+    if (payload.action === 'accept') {
+      // Permanent accept - keep changes, delete backup only, remove from pending
+      await fileWriter.deleteBackup(payload.diffId);
+      this.pendingDiffs.delete(payload.diffId);
+
+      this.wsServer?.send(ws, {
+        id: crypto.randomUUID(),
+        type: 'diff:accepted',
+        payload: {
+          diffId: payload.diffId,
+          file: diff.file,
+          success: true,
+        },
+        timestamp: Date.now(),
+      });
+
+      console.log(`[Server] Accepted diff ${payload.diffId} - backup deleted, changes kept`);
+      return;
+    }
+
+    // Legacy: Apply changes (action === 'apply') - for backward compatibility
     try {
       const result = await fileWriter.applyDiff(diff);
 
@@ -432,7 +485,6 @@ export class PixelCodeServer {
         });
 
         // DON'T delete from pendingDiffs - keep it for undo capability
-        // Only delete on permanent accept (Check button) or reject (X button)
         console.log(`[Server] Applied diff ${payload.diffId}, keeping in memory for undo`);
       } else {
         this.wsServer?.sendError(ws, 'WRITE_ERROR', result.error || 'Failed to write file');
@@ -494,7 +546,7 @@ export class PixelCodeServer {
   private async handleToolsList(ws: WebSocket, message: Message): Promise<void> {
     try {
       const available = await this.adapterRegistry.getAvailableWithPriority();
-      
+
       const tools: ToolInfo[] = await Promise.all(
         available.map(async (adapter) => ({
           name: adapter.name,
@@ -518,18 +570,16 @@ export class PixelCodeServer {
 
   private async handleModelsList(ws: WebSocket, message: Message): Promise<void> {
     const payload = message.payload as { tool: string };
-    
+
     try {
       const adapter = await this.adapterRegistry.getAdapter(payload.tool);
-      
+
       if (!adapter) {
         this.wsServer?.sendError(ws, 'TOOL_NOT_FOUND', `Tool '${payload.tool}' not found`);
         return;
       }
 
-      const models = adapter.getAvailableModels 
-        ? await adapter.getAvailableModels() 
-        : [];
+      const models = adapter.getAvailableModels ? await adapter.getAvailableModels() : [];
 
       this.wsServer?.send(ws, {
         id: crypto.randomUUID(),
@@ -545,7 +595,7 @@ export class PixelCodeServer {
 
   private async handleConfigUpdate(ws: WebSocket, message: Message): Promise<void> {
     const payload = message.payload as ToolConfigPayload;
-    
+
     try {
       // Update current adapter if tool changed
       if (payload.tool) {
@@ -577,7 +627,13 @@ export class PixelCodeServer {
     }
   }
 
-  private sendStatus(ws: WebSocket, elementId: string, stage: string, message: string, progress?: number): void {
+  private sendStatus(
+    ws: WebSocket,
+    elementId: string,
+    stage: string,
+    message: string,
+    progress?: number
+  ): void {
     this.wsServer?.send(ws, {
       id: crypto.randomUUID(),
       type: 'status:update',
@@ -615,9 +671,7 @@ export class PixelCodeServer {
 
     // Use configured tool or first available (by priority)
     const toolName = config.tool;
-    this.currentAdapter = toolName 
-      ? await this.adapterRegistry.getAdapter(toolName)
-      : available[0];
+    this.currentAdapter = toolName ? await this.adapterRegistry.getAdapter(toolName) : available[0];
 
     if (this.currentAdapter && this.currentAdapter.getVersion) {
       const version = await this.currentAdapter.getVersion();

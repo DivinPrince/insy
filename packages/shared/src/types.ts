@@ -98,16 +98,16 @@ export interface SourceFile {
 // ============================================================================
 
 export interface ToolInfo {
-  name: string;           // e.g., "OpenCode"
-  identifier: string;     // e.g., "opencode" (lowercase, used for registry lookup)
+  name: string; // e.g., "OpenCode"
+  identifier: string; // e.g., "opencode" (lowercase, used for registry lookup)
   version?: string;
   available: boolean;
 }
 
 export interface ModelInfo {
-  id: string;             // e.g., "claude-sonnet-4.5", "gpt-5"
-  name: string;           // Display name
-  provider?: string;      // Optional provider info
+  id: string; // e.g., "claude-sonnet-4.5", "gpt-5"
+  name: string; // Display name
+  provider?: string; // Optional provider info
 }
 
 // ============================================================================
@@ -130,13 +130,13 @@ export interface CodeChange {
   filePath: string;
   action: CodeChangeAction;
   language: string;
-  content: string;          // Full file content (empty for delete)
-  description?: string;     // Optional description of this specific change
+  content: string; // Full file content (empty for delete)
+  description?: string; // Optional description of this specific change
 }
 
 export interface StructuredCodeResponse {
   changes: CodeChange[];
-  summary?: string;         // Overall summary of all changes
+  summary?: string; // Overall summary of all changes
 }
 
 export interface DiffChange {
@@ -180,7 +180,7 @@ export interface ElementSelectPayload {
   framework?: Framework;
   frameworkContext?: FrameworkContext;
   sourceHints?: SourceHints;
-  projectPath?: string;   // Project root path for this element
+  projectPath?: string; // Project root path for this element
 }
 
 // Conversation message for chat history
@@ -201,17 +201,17 @@ export interface PromptSubmitPayload {
   elementId: string;
   prompt: string;
   mode?: 'preview' | 'auto-apply';
-  tool?: string;          // User-selected tool
-  model?: string;         // User-selected model
-  sessionId?: string;     // Unique session ID per chat conversation
-  conversationHistory?: ConversationMessage[];  // Full conversation history
-  projectPath?: string;   // Project root path for this request
-  instanceId?: string;    // QuickEdit instance ID for routing responses
+  tool?: string; // User-selected tool
+  model?: string; // User-selected model
+  sessionId?: string; // Unique session ID per chat conversation
+  conversationHistory?: ConversationMessage[]; // Full conversation history
+  projectPath?: string; // Project root path for this request
+  instanceId?: string; // QuickEdit instance ID for routing responses
 }
 
 export interface DiffApprovalPayload {
   diffId: string;
-  action: 'apply' | 'reject';
+  action: 'apply' | 'reject' | 'accept'; // accept = keep changes, delete backup
 }
 
 export interface ConfigUpdatePayload {
@@ -219,7 +219,7 @@ export interface ConfigUpdatePayload {
   provider?: 'openai' | 'anthropic' | 'opencode';
   model?: string;
   autoApply?: boolean;
-  tool?: string;          // Tool preference
+  tool?: string; // Tool preference
 }
 
 // New Tool & Model Payloads
@@ -229,29 +229,24 @@ export interface ToolsListPayload {
 }
 
 export interface ModelsListPayload {
-  tool: string;           // Tool identifier
+  tool: string; // Tool identifier
   models: ModelInfo[];
 }
 
 export interface ToolConfigPayload {
-  tool?: string;          // Selected tool identifier
-  model?: string;         // Selected model ID
+  tool?: string; // Selected tool identifier
+  model?: string; // Selected model ID
 }
 
 // Server → Client Messages
 
-export type StatusStage =
-  | 'analyzing'
-  | 'ai_processing'
-  | 'generating_diff'
-  | 'complete'
-  | 'error';
+export type StatusStage = 'analyzing' | 'ai_processing' | 'generating_diff' | 'complete' | 'error';
 
 export interface StatusUpdatePayload {
   stage: StatusStage;
   message: string;
   progress?: number;
-  instanceId?: string;    // Optional instance-specific update
+  instanceId?: string; // Optional instance-specific update
 }
 
 export interface SourceFoundPayload {
@@ -268,13 +263,14 @@ export interface DiffGeneratedPayload {
     before: string;
     after: string;
   };
-  instanceId?: string;    // QuickEdit instance ID
+  instanceId?: string; // QuickEdit instance ID
 }
 
 export interface MultiDiffGeneratedPayload {
-  elementId?: string;     // Deprecated, use instanceId
+  elementId?: string; // Deprecated, use instanceId
   summary?: string;
-  instanceId?: string;    // QuickEdit instance ID
+  instanceId?: string; // QuickEdit instance ID
+  autoApplied?: boolean; // If true, changes were auto-applied to files
   diffs: Array<{
     diffId: string;
     file: string;
@@ -292,7 +288,7 @@ export interface DiffAppliedPayload {
   file: string;
   success: boolean;
   backupPath?: string;
-  instanceId?: string;    // QuickEdit instance ID
+  instanceId?: string; // QuickEdit instance ID
 }
 
 export interface ErrorPayload {

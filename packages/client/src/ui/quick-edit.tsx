@@ -1,7 +1,13 @@
 import { h } from 'preact';
 import { useState, useRef, useEffect } from 'preact/hooks';
 import type { FunctionComponent } from 'preact';
-import type { ElementInfo, ModelInfo, CodeChangeAction, FrameworkContext, ReactContext } from '@pixelcode/shared';
+import type {
+  ElementInfo,
+  ModelInfo,
+  CodeChangeAction,
+  FrameworkContext,
+  ReactContext,
+} from '@pixelcode/shared';
 
 export type QuickEditState = 'prompt' | 'loading' | 'changes';
 
@@ -19,56 +25,57 @@ export interface QuickEditProps {
   targetElement: HTMLElement;
   elementInfo: ElementInfo;
   frameworkContext?: FrameworkContext;
-  
+
   // State
   state: QuickEditState;
   statusMessage?: string;
-  
+
   // Model selection
   models?: ModelInfo[];
   selectedModel?: string;
   onModelChange?: (modelId: string) => void;
-  
+
   // Actions
   onSubmit: (instanceId: string, prompt: string) => void;
   onClose: () => void;
   onCompact: () => void;
-  
+
   // Changes
   diffs?: DiffPreview[];
-  onToggleChanges?: (instanceId: string, diffIds: string[], apply: boolean) => void;
   onAcceptChanges?: (instanceId: string, diffIds: string[]) => void;
   onRejectChanges?: (instanceId: string) => void;
-  
+
   // Compact mode
   isCompact?: boolean;
 }
 
 // Icon Components
-const EyeIcon = ({ open }: { open: boolean }) => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-    {open ? (
-      <>
-        <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-        <circle cx="12" cy="12" r="3" />
-      </>
-    ) : (
-      <>
-        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19" />
-        <line x1="1" y1="1" x2="23" y2="23" />
-      </>
-    )}
-  </svg>
-);
-
 const CheckIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#16a34a" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="#16a34a"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <polyline points="20 6 9 17 4 12" />
   </svg>
 );
 
 const XIcon = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="18"
+    height="18"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="#dc2626"
+    strokeWidth="2.5"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <line x1="18" y1="6" x2="6" y2="18" />
     <line x1="6" y1="6" x2="18" y2="18" />
   </svg>
@@ -81,7 +88,16 @@ const CompactIcon = () => (
 );
 
 const SendIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
     <circle cx="12" cy="12" r="10" />
     <path d="M12 16l4-4-4-4" />
     <path d="M8 12h8" />
@@ -108,14 +124,11 @@ export const QuickEdit: FunctionComponent<QuickEditProps> = ({
   onClose,
   onCompact,
   diffs = [],
-  onToggleChanges,
   onAcceptChanges,
   onRejectChanges,
   isCompact = false,
 }) => {
   const [inputValue, setInputValue] = useState('');
-  const [showPreview, setShowPreview] = useState(false);
-  const [changesApplied, setChangesApplied] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Extract component info if React
@@ -128,49 +141,49 @@ export const QuickEdit: FunctionComponent<QuickEditProps> = ({
 
   const calculatePosition = () => {
     if (!targetElement) return;
-    
+
     const rect = targetElement.getBoundingClientRect();
     const viewportWidth = window.innerWidth;
     const viewportHeight = window.innerHeight;
-    
+
     const qeWidth = 300;
     const qeHeight = 300; // max estimated height
     const offset = 10;
-    
+
     let x = rect.right + offset;
     let y = rect.top;
-    
+
     // If overflows right, position to left
     if (x + qeWidth > viewportWidth) {
       x = rect.left - qeWidth - offset;
     }
-    
+
     // If still overflows left, center it
     if (x < 0) {
       x = (viewportWidth - qeWidth) / 2;
     }
-    
+
     // If overflows bottom, align to bottom
     if (y + qeHeight > viewportHeight) {
       y = Math.max(10, viewportHeight - qeHeight - offset);
     }
-    
+
     // Ensure minimum top margin
     y = Math.max(10, y);
-    
+
     setPosition({ x, y });
   };
 
   // Calculate position on mount and scroll
   useEffect(() => {
     calculatePosition();
-    
+
     const handleScroll = () => calculatePosition();
     const handleResize = () => calculatePosition();
-    
+
     window.addEventListener('scroll', handleScroll, { passive: true });
     window.addEventListener('resize', handleResize);
-    
+
     return () => {
       window.removeEventListener('scroll', handleScroll);
       window.removeEventListener('resize', handleResize);
@@ -336,7 +349,11 @@ export const QuickEdit: FunctionComponent<QuickEditProps> = ({
                 flex: 1,
                 minWidth: 0,
               }}
-              title={componentName ? `${componentName} <${elementInfo.tagName.toLowerCase()}>` : `<${elementInfo.tagName.toLowerCase()}>`}
+              title={
+                componentName
+                  ? `${componentName} <${elementInfo.tagName.toLowerCase()}>`
+                  : `<${elementInfo.tagName.toLowerCase()}>`
+              }
             >
               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {componentName || `<${elementInfo.tagName.toLowerCase()}>`}
@@ -412,7 +429,7 @@ export const QuickEdit: FunctionComponent<QuickEditProps> = ({
                   maxHeight: '100px',
                 }}
               />
-              
+
               {/* Bottom bar */}
               <div
                 style={{
@@ -499,38 +516,10 @@ export const QuickEdit: FunctionComponent<QuickEditProps> = ({
             }}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              {/* Eye toggle - Apply/Unapply changes temporarily with backup/restore */}
+              {/* Accept - Keep changes */}
               <button
                 onClick={() => {
-                  const newState = !changesApplied;
-                  setChangesApplied(newState);
-                  
-                  // Toggle apply/unapply with undo capability
-                  const diffIds = diffs.map(d => d.diffId);
-                  onToggleChanges?.(instanceId, diffIds, newState);
-                }}
-                style={{
-                  background: changesApplied ? '#dcfce7' : 'transparent',
-                  border: '1px solid',
-                  borderColor: changesApplied ? '#16a34a' : '#e5e5e5',
-                  color: changesApplied ? '#16a34a' : '#666',
-                  cursor: 'pointer',
-                  padding: '6px',
-                  borderRadius: '6px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  transition: 'all 0.15s ease',
-                }}
-                title={changesApplied ? 'Undo changes (restore from backup)' : 'Apply changes (create backup)'}
-              >
-                <EyeIcon open={changesApplied} />
-              </button>
-
-              {/* Accept - Permanent */}
-              <button
-                onClick={() => {
-                  const diffIds = diffs.map(d => d.diffId);
+                  const diffIds = diffs.map((d) => d.diffId);
                   onAcceptChanges?.(instanceId, diffIds);
                 }}
                 style={{
@@ -544,12 +533,12 @@ export const QuickEdit: FunctionComponent<QuickEditProps> = ({
                   justifyContent: 'center',
                   transition: 'all 0.15s ease',
                 }}
-                title="Accept permanently (remove backup)"
+                title="Accept changes"
               >
                 <CheckIcon />
               </button>
 
-              {/* Reject - Permanent */}
+              {/* Reject - Restore original */}
               <button
                 onClick={() => onRejectChanges?.(instanceId)}
                 style={{
@@ -563,7 +552,7 @@ export const QuickEdit: FunctionComponent<QuickEditProps> = ({
                   justifyContent: 'center',
                   transition: 'all 0.15s ease',
                 }}
-                title="Reject changes permanently"
+                title="Reject changes"
               >
                 <XIcon />
               </button>
@@ -628,87 +617,103 @@ export const QuickEdit: FunctionComponent<QuickEditProps> = ({
             style={{
               padding: '12px',
               maxHeight: '250px',
-                overflow: 'auto',
-                backgroundColor: '#fafafa',
-              }}
-            >
-              {diffs.map((diff) => {
-                const beforeLines = diff.before ? diff.before.split('\n').length : 0;
-                const afterLines = diff.after ? diff.after.split('\n').length : 0;
-                const additions = diff.action === 'create' ? afterLines : Math.max(0, afterLines - beforeLines);
-                const deletions = diff.action === 'delete' ? beforeLines : Math.max(0, beforeLines - afterLines);
+              overflow: 'auto',
+              backgroundColor: '#fafafa',
+            }}
+          >
+            {diffs.map((diff) => {
+              const beforeLines = diff.before ? diff.before.split('\n').length : 0;
+              const afterLines = diff.after ? diff.after.split('\n').length : 0;
+              const additions =
+                diff.action === 'create' ? afterLines : Math.max(0, afterLines - beforeLines);
+              const deletions =
+                diff.action === 'delete' ? beforeLines : Math.max(0, beforeLines - afterLines);
 
-                return (
+              return (
+                <div
+                  key={diff.diffId}
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    padding: '8px 10px',
+                    backgroundColor: '#fff',
+                    borderRadius: '8px',
+                    marginBottom: '6px',
+                    border: '1px solid #e5e5e5',
+                    fontSize: '12px',
+                  }}
+                >
                   <div
-                    key={diff.diffId}
                     style={{
                       display: 'flex',
                       alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '8px 10px',
-                      backgroundColor: '#fff',
-                      borderRadius: '8px',
-                      marginBottom: '6px',
-                      border: '1px solid #e5e5e5',
-                      fontSize: '12px',
+                      gap: '8px',
+                      flex: 1,
+                      minWidth: 0,
                     }}
                   >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flex: 1, minWidth: 0 }}>
-                      {/* Action icon */}
-                      {diff.action === 'create' && (
-                        <span style={{ color: '#16a34a', fontSize: '14px', fontWeight: '600' }}>+</span>
-                      )}
-                      {diff.action === 'delete' && (
-                        <span style={{ color: '#dc2626', fontSize: '14px', fontWeight: '600' }}>−</span>
-                      )}
-                      {diff.action === 'modify' && (
-                        <span style={{ color: '#ca8a04', fontSize: '14px', fontWeight: '600' }}>~</span>
-                      )}
-                      {/* Filename */}
+                    {/* Action icon */}
+                    {diff.action === 'create' && (
+                      <span style={{ color: '#16a34a', fontSize: '14px', fontWeight: '600' }}>
+                        +
+                      </span>
+                    )}
+                    {diff.action === 'delete' && (
+                      <span style={{ color: '#dc2626', fontSize: '14px', fontWeight: '600' }}>
+                        −
+                      </span>
+                    )}
+                    {diff.action === 'modify' && (
+                      <span style={{ color: '#ca8a04', fontSize: '14px', fontWeight: '600' }}>
+                        ~
+                      </span>
+                    )}
+                    {/* Filename */}
+                    <span
+                      style={{
+                        color: '#333',
+                        fontWeight: '500',
+                        overflow: 'hidden',
+                        textOverflow: 'ellipsis',
+                        whiteSpace: 'nowrap',
+                        fontFamily: 'SF Mono, Monaco, monospace',
+                      }}
+                    >
+                      {diff.file.split(/[/\\]/).pop() || diff.file}
+                    </span>
+                  </div>
+                  {/* Line changes */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
+                    {additions > 0 && (
                       <span
                         style={{
-                          color: '#333',
-                          fontWeight: '500',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
+                          fontSize: '11px',
+                          color: '#16a34a',
+                          fontWeight: '600',
                           fontFamily: 'SF Mono, Monaco, monospace',
                         }}
                       >
-                        {diff.file.split(/[/\\]/).pop() || diff.file}
+                        +{additions}
                       </span>
-                    </div>
-                    {/* Line changes */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexShrink: 0 }}>
-                      {additions > 0 && (
-                        <span
-                          style={{
-                            fontSize: '11px',
-                            color: '#16a34a',
-                            fontWeight: '600',
-                            fontFamily: 'SF Mono, Monaco, monospace',
-                          }}
-                        >
-                          +{additions}
-                        </span>
-                      )}
-                      {deletions > 0 && (
-                        <span
-                          style={{
-                            fontSize: '11px',
-                            color: '#dc2626',
-                            fontWeight: '600',
-                            fontFamily: 'SF Mono, Monaco, monospace',
-                          }}
-                        >
-                          -{deletions}
-                        </span>
-                      )}
-                    </div>
+                    )}
+                    {deletions > 0 && (
+                      <span
+                        style={{
+                          fontSize: '11px',
+                          color: '#dc2626',
+                          fontWeight: '600',
+                          fontFamily: 'SF Mono, Monaco, monospace',
+                        }}
+                      >
+                        -{deletions}
+                      </span>
+                    )}
                   </div>
-                );
-              })}
-            </div>
+                </div>
+              );
+            })}
+          </div>
         </>
       )}
 

@@ -1,4 +1,4 @@
-import { readFile, writeFile, mkdir } from 'fs/promises';
+import { readFile, writeFile, mkdir, unlink } from 'fs/promises';
 import path from 'path';
 import type { DiffResult } from '@pixelcode/shared';
 
@@ -16,7 +16,9 @@ export class FileWriter {
     this.backupDir = path.join(projectRoot, '.pixelcode', 'backups');
   }
 
-  async applyDiff(diff: DiffResult): Promise<{ success: boolean; backupPath?: string; error?: string }> {
+  async applyDiff(
+    diff: DiffResult
+  ): Promise<{ success: boolean; backupPath?: string; error?: string }> {
     try {
       // Read current content
       const currentContent = await readFile(diff.file, 'utf-8');
@@ -39,9 +41,9 @@ export class FileWriter {
       return { success: true, backupPath };
     } catch (error) {
       console.error('[FileWriter] Error applying diff:', error);
-      return { 
-        success: false, 
-        error: error instanceof Error ? error.message : 'Unknown error' 
+      return {
+        success: false,
+        error: error instanceof Error ? error.message : 'Unknown error',
       };
     }
   }
@@ -73,6 +75,32 @@ export class FileWriter {
     }
   }
 
+  /**
+   * Delete backup file and remove from history.
+   * Called when user accepts changes (keeps file as-is, removes backup).
+   */
+  async deleteBackup(diffId: string): Promise<boolean> {
+    try {
+      const change = await this.getChange(diffId);
+      if (!change) return false;
+
+      // Delete backup file
+      try {
+        await unlink(change.backupPath);
+        console.log(`[FileWriter] Deleted backup: ${change.backupPath}`);
+      } catch {
+        // Backup file may not exist, that's ok
+      }
+
+      // Remove from history
+      await this.removeChangeRecord(diffId);
+      return true;
+    } catch (error) {
+      console.error('[FileWriter] Error deleting backup:', error);
+      return false;
+    }
+  }
+
   private async recordChange(change: ChangeRecord): Promise<void> {
     const historyFile = path.join(this.backupDir, 'history.json');
     let history: ChangeRecord[] = [];
@@ -97,6 +125,22 @@ export class FileWriter {
       return history.find((c) => c.diffId === diffId) || null;
     } catch {
       return null;
+    }
+  }
+
+  /**
+   * Remove a change record from history.
+   */
+  private async removeChangeRecord(diffId: string): Promise<void> {
+    try {
+      const historyFile = path.join(this.backupDir, 'history.json');
+      const content = await readFile(historyFile, 'utf-8');
+      let history: ChangeRecord[] = JSON.parse(content);
+
+      history = history.filter((c) => c.diffId !== diffId);
+      await writeFile(historyFile, JSON.stringify(history, null, 2));
+    } catch {
+      // History file may not exist
     }
   }
 }
