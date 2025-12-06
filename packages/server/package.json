@@ -1,6 +1,6 @@
 {
   "name": "@insy/server",
-  "version": "0.1.4",
+  "version": "0.0.1",
   "description": "Insy local server",
   "type": "module",
   "main": "./dist/index.js",

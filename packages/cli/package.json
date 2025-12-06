@@ -1,6 +1,6 @@
 {
   "name": "insy",
-  "version": "0.4.5",
+  "version": "0.0.1",
   "description": "AI-powered visual code editing for any frontend framework",
   "type": "module",
   "bin": {
