@@ -1,5 +1,5 @@
 import { render, h } from 'preact';
-import { SSEClient } from './sse/client';
+import { WSClient } from './ws/client';
 import { ElementSelector } from './core/selector';
 import { detectFramework, captureFrameworkContext } from './frameworks/detector';
 import { extractSourceHints } from './core/capture';
@@ -35,7 +35,7 @@ interface QuickEditInstance {
 }
 
 class InsyClient {
-  private sse: SSEClient;
+  private ws: WSClient;
   private selector: ElementSelector;
   private isConnected = false;
   private isSelectorActive = false;
@@ -52,7 +52,7 @@ class InsyClient {
     const port = config.port || 7777;
     const baseUrl = `http://${host}:${port}`;
 
-    this.sse = new SSEClient(baseUrl);
+    this.ws = new WSClient(baseUrl);
     this.selector = new ElementSelector();
 
     // Get project path from config
@@ -66,7 +66,7 @@ class InsyClient {
 
   async init(): Promise<void> {
     try {
-      await this.sse.connect();
+      await this.ws.connect();
       this.isConnected = true;
       this.renderButton();
       console.log('✅ Insy connected');
@@ -89,28 +89,37 @@ class InsyClient {
 
   private setupEventHandlers(): void {
     // Status updates during AI processing
-    this.sse.on<StatusUpdatePayload>('status', (payload) => {
+    this.ws.on<StatusUpdatePayload>('status', (payload) => {
       this.handleStatusUpdate(payload);
     });
 
     // Diff generated (multi-file)
-    this.sse.on<MultiDiffGeneratedPayload>('diff', (payload) => {
+    this.ws.on<MultiDiffGeneratedPayload>('diff', (payload) => {
       this.handleMultiDiffGenerated(payload);
     });
 
     // Diff applied
-    this.sse.on<DiffAppliedPayload>('applied', (payload) => {
+    this.ws.on<DiffAppliedPayload>('applied', (payload) => {
       this.handleDiffApplied(payload);
     });
 
     // Diff undone
-    this.sse.on<{ diffId: string; success: boolean }>('undone', (payload) => {
+    this.ws.on<{ diffId: string; success: boolean }>('undone', (payload) => {
       this.handleDiffUndone(payload);
     });
 
     // Error handling
-    this.sse.on<{ code: string; message: string }>('error', (payload) => {
+    this.ws.on<{ code: string; message: string }>('error', (payload) => {
       console.error(`[Insy] Error: ${payload.code} - ${payload.message}`);
+
+      // Find instances in loading state and reset them on error
+      this.quickEditInstances.forEach((instance) => {
+        if (instance.state === 'loading') {
+          instance.state = 'prompt';
+          instance.statusMessage = `Error: ${payload.message}`;
+          this.renderQuickEdit(instance);
+        }
+      });
     });
   }
 
@@ -300,43 +309,31 @@ class InsyClient {
     instance.statusMessage = 'Sending request...';
     this.renderQuickEdit(instance);
 
-    // Include full element context in the prompt submission
-    this.sse
-      .post('/api/prompt/submit', {
-        instanceId,
-        prompt,
-        mode: 'preview',
-        sessionId: instanceId,
-        conversationHistory: [],
-        projectPath: this.projectPath,
-        // Element context (previously sent via /api/element/select)
-        element: instance.elementInfo,
-        framework: instance.framework,
-        frameworkContext: instance.frameworkContext,
-        sourceHints: instance.sourceHints,
-      })
-      .catch((error) => {
-        console.error('[Insy] Failed to submit prompt:', error);
-        instance.state = 'prompt';
-        instance.statusMessage = undefined;
-        this.renderQuickEdit(instance);
-      });
+    // Submit prompt via WebSocket
+    this.ws.submitPrompt({
+      instanceId,
+      prompt,
+      sessionId: instanceId,
+      conversationHistory: [],
+      projectPath: this.projectPath,
+      // Element context
+      element: instance.elementInfo,
+      framework: instance.framework,
+      frameworkContext: instance.frameworkContext,
+      sourceHints: instance.sourceHints,
+    });
   }
 
   private handleAcceptChanges(instanceId: string, diffIds: string[]): void {
     const instance = this.quickEditInstances.get(instanceId);
     if (!instance || !instance.diffs) return;
 
-    // Send accept for each diff ID - keeps changes, deletes backups
+    // Send accept for each diff ID via WebSocket
     diffIds.forEach((diffId) => {
-      this.sse
-        .post('/api/diff/approve', {
-          diffId: diffId,
-          action: 'accept',
-        })
-        .catch((error) => {
-          console.error('[Insy] Failed to accept diff:', error);
-        });
+      this.ws.approveDiff({
+        diffId: diffId,
+        action: 'accept',
+      });
     });
 
     console.log('✅ Accepted changes');
@@ -347,16 +344,12 @@ class InsyClient {
     const instance = this.quickEditInstances.get(instanceId);
     if (!instance || !instance.diffs) return;
 
-    // Send rejection for each diff ID
+    // Send rejection for each diff ID via WebSocket
     instance.diffs.forEach((diff) => {
-      this.sse
-        .post('/api/diff/approve', {
-          diffId: diff.diffId,
-          action: 'reject',
-        })
-        .catch((error) => {
-          console.error('[Insy] Failed to reject diff:', error);
-        });
+      this.ws.approveDiff({
+        diffId: diff.diffId,
+        action: 'reject',
+      });
     });
 
     this.destroyQuickEditInstance(instanceId);
@@ -366,39 +359,18 @@ class InsyClient {
     const instance = this.quickEditInstances.get(instanceId);
     if (!instance) return;
 
-    // Call toggle endpoint - server will swap between original and modified
-    this.sse
-      .post('/api/diff/toggle', { diffId })
-      .then((res) => {
-        const response = res as { success: boolean; isApplied: boolean };
-        if (response.success) {
-          console.log(`[Insy] Toggled preview for ${diffId}: ${response.isApplied ? 'ON' : 'OFF'}`);
-        }
-      })
-      .catch((error) => {
-        console.error('[Insy] Failed to toggle preview:', error);
-      });
+    // Call toggle via WebSocket
+    this.ws.toggleDiff(diffId);
   }
 
   private handleToggleAllPreviews(instanceId: string, diffIds: string[]): void {
     const instance = this.quickEditInstances.get(instanceId);
     if (!instance) return;
 
-    // Toggle all diffs sequentially
+    // Toggle all diffs
     console.log(`[Insy] Toggling all ${diffIds.length} previews...`);
-
     diffIds.forEach((diffId) => {
-      this.sse
-        .post('/api/diff/toggle', { diffId })
-        .then((res) => {
-          const response = res as { success: boolean; isApplied: boolean };
-          if (response.success) {
-            console.log(`[Insy] Toggled ${diffId}: ${response.isApplied ? 'ON' : 'OFF'}`);
-          }
-        })
-        .catch((error) => {
-          console.error(`[Insy] Failed to toggle ${diffId}:`, error);
-        });
+      this.ws.toggleDiff(diffId);
     });
   }
 

@@ -146,8 +146,28 @@ export interface DiffResult {
 }
 
 // ============================================================================
-// SSE Messages
+// WebSocket Messages
 // ============================================================================
+
+// Client → Server message types
+export type WSClientMessageType = 'prompt/submit' | 'diff/approve' | 'diff/undo' | 'diff/toggle';
+
+// Server → Client message types
+export type WSServerMessageType =
+  | 'connected'
+  | 'status'
+  | 'diff'
+  | 'applied'
+  | 'undone'
+  | 'toggled'
+  | 'accepted'
+  | 'error';
+
+// Unified WebSocket message format
+export interface WebSocketMessage<T = unknown> {
+  type: WSClientMessageType | WSServerMessageType;
+  payload: T;
+}
 
 export interface Message<T = unknown> {
   id: string;

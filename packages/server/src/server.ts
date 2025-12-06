@@ -10,9 +10,10 @@ import type {
   DiffApprovalPayload,
   StatusUpdatePayload,
   CodeChangeAction,
+  WebSocketMessage,
 } from '@insy/shared';
 
-import { InsySSEServer } from './sse/server.js';
+import { InsyWSServer } from './ws/server.js';
 import { SourceFileFinder } from './analyzer/finder.js';
 import { DiffGenerator } from './modifier/diff.js';
 import { FileWriter } from './filesystem/writer.js';
@@ -34,7 +35,7 @@ export interface ServerOptions {
 
 export class InsyServer {
   private app: Hono;
-  private sseServer: InsySSEServer;
+  private wsServer: InsyWSServer;
   private configLoader: ConfigLoader;
   private defaultProjectRoot: string;
   private adapterRegistry: AdapterRegistry;
@@ -55,10 +56,11 @@ export class InsyServer {
     this.app = new Hono();
     this.defaultProjectRoot = options.projectRoot || process.cwd();
     this.configLoader = new ConfigLoader(this.defaultProjectRoot);
-    this.sseServer = new InsySSEServer();
+    this.wsServer = new InsyWSServer();
     this.adapterRegistry = new AdapterRegistry();
 
     this.setupRoutes();
+    this.setupWebSocketHandlers();
   }
 
   // Get or create services for a specific project path
@@ -135,104 +137,52 @@ export class InsyServer {
         return c.text('// Client not found. Run `pnpm build` first.', 404);
       }
     });
-
-    // SSE endpoint
-    this.app.get('/events', (c) => {
-      const clientId = c.req.query('clientId');
-      if (!clientId) {
-        return c.json({ error: 'clientId is required' }, 400);
-      }
-      return this.sseServer.handleConnection(clientId);
-    });
-
-    // REST API endpoints
-    this.setupAPIRoutes();
   }
 
-  private setupAPIRoutes(): void {
-    // Prompt submission (includes element context)
-    this.app.post('/api/prompt/submit', async (c) => {
-      const clientId = c.req.header('X-Client-ID');
-      if (!clientId) {
-        return c.json({ error: 'X-Client-ID header is required' }, 400);
-      }
-
-      try {
-        const payload = (await c.req.json()) as PromptSubmitPayload;
-
-        // Validate required fields
-        if (!payload.instanceId || !payload.element || !payload.framework || !payload.prompt) {
-          return c.json(
-            { error: 'Missing required fields: instanceId, element, framework, prompt' },
-            400
-          );
-        }
-
-        // Start async processing - return immediately
-        this.handlePrompt(clientId, payload).catch((error) => {
-          console.error('[Server] Error in prompt handling:', error);
-          this.sseServer.send(clientId, 'error', {
-            code: 'PROCESSING_ERROR',
-            message: error instanceof Error ? error.message : 'Unknown error',
-          });
-        });
-
-        return c.json({ accepted: true, instanceId: payload.instanceId });
-      } catch (error) {
-        console.error('[Server] Error parsing prompt/submit:', error);
-        return c.json({ error: 'Failed to parse request' }, 400);
+  /**
+   * Setup WebSocket message handlers
+   */
+  private setupWebSocketHandlers(): void {
+    this.wsServer.onMessage((clientId: string, message: WebSocketMessage) => {
+      switch (message.type) {
+        case 'prompt/submit':
+          this.handlePromptMessage(clientId, message.payload as PromptSubmitPayload);
+          break;
+        case 'diff/approve':
+          this.handleDiffApproval(clientId, message.payload as DiffApprovalPayload);
+          break;
+        case 'diff/undo':
+          this.handleDiffUndo(clientId, message.payload as { diffId: string });
+          break;
+        case 'diff/toggle':
+          this.handleDiffToggle(clientId, message.payload as { diffId: string });
+          break;
+        default:
+          console.warn(`[Server] Unknown message type: ${message.type}`);
       }
     });
+  }
 
-    // Diff approval
-    this.app.post('/api/diff/approve', async (c) => {
-      const clientId = c.req.header('X-Client-ID');
-      if (!clientId) {
-        return c.json({ error: 'X-Client-ID header is required' }, 400);
-      }
+  /**
+   * Handle prompt submission from WebSocket
+   */
+  private handlePromptMessage(clientId: string, payload: PromptSubmitPayload): void {
+    // Validate required fields
+    if (!payload.instanceId || !payload.element || !payload.framework || !payload.prompt) {
+      this.wsServer.send(clientId, 'error', {
+        code: 'INVALID_REQUEST',
+        message: 'Missing required fields: instanceId, element, framework, prompt',
+      });
+      return;
+    }
 
-      try {
-        const payload = (await c.req.json()) as DiffApprovalPayload;
-        await this.handleDiffApproval(clientId, payload);
-        return c.json({ success: true });
-      } catch (error) {
-        console.error('[Server] Error in diff/approve:', error);
-        return c.json({ error: 'Failed to process diff approval' }, 500);
-      }
-    });
-
-    // Diff undo
-    this.app.post('/api/diff/undo', async (c) => {
-      const clientId = c.req.header('X-Client-ID');
-      if (!clientId) {
-        return c.json({ error: 'X-Client-ID header is required' }, 400);
-      }
-
-      try {
-        const payload = (await c.req.json()) as { diffId: string };
-        await this.handleDiffUndo(clientId, payload);
-        return c.json({ success: true });
-      } catch (error) {
-        console.error('[Server] Error in diff/undo:', error);
-        return c.json({ error: 'Failed to process diff undo' }, 500);
-      }
-    });
-
-    // Diff toggle (preview on/off without losing backup)
-    this.app.post('/api/diff/toggle', async (c) => {
-      const clientId = c.req.header('X-Client-ID');
-      if (!clientId) {
-        return c.json({ error: 'X-Client-ID header is required' }, 400);
-      }
-
-      try {
-        const payload = (await c.req.json()) as { diffId: string };
-        const result = await this.handleDiffToggle(clientId, payload);
-        return c.json(result);
-      } catch (error) {
-        console.error('[Server] Error in diff/toggle:', error);
-        return c.json({ error: 'Failed to toggle diff' }, 500);
-      }
+    // Start async processing
+    this.handlePrompt(clientId, payload).catch((error) => {
+      console.error('[Server] Error in prompt handling:', error);
+      this.wsServer.send(clientId, 'error', {
+        code: 'PROCESSING_ERROR',
+        message: error instanceof Error ? error.message : 'Unknown error',
+      });
     });
   }
 
@@ -301,7 +251,7 @@ export class InsyServer {
 
       // Stage 3: Execute CLI via adapter
       if (!this.currentAdapter) {
-        this.sseServer.send(clientId, 'error', {
+        this.wsServer.send(clientId, 'error', {
           code: 'NO_ADAPTER',
           message: 'No CLI tool adapter available',
         });
@@ -395,7 +345,7 @@ export class InsyServer {
           });
         }
 
-        // Send multi-diff to client via SSE
+        // Send multi-diff to client via WebSocket
         console.log(
           `[Server] Sending diff event with ${diffPayloads.length} diff(s) (auto-applied)`
         );
@@ -405,7 +355,7 @@ export class InsyServer {
           );
         }
 
-        this.sseServer.send(clientId, 'diff', {
+        this.wsServer.send(clientId, 'diff', {
           instanceId: payload.instanceId,
           summary: structured.summary,
           diffs: diffPayloads,
@@ -414,7 +364,7 @@ export class InsyServer {
       } else {
         // Legacy format - AI didn't return structured XML
         console.warn('[Server] AI response not in structured format, raw response received');
-        this.sseServer.send(clientId, 'error', {
+        this.wsServer.send(clientId, 'error', {
           code: 'PARSE_ERROR',
           message:
             'AI response was not in the expected XML format. Expected <file_changes> with file content for diff generation.',
@@ -441,7 +391,7 @@ export class InsyServer {
           userMessage = `AI provider error: ${error.message}`;
         }
 
-        this.sseServer.send(clientId, 'error', {
+        this.wsServer.send(clientId, 'error', {
           code: errorCode,
           message: userMessage,
           details: {
@@ -455,7 +405,7 @@ export class InsyServer {
         return;
       }
 
-      this.sseServer.send(clientId, 'error', {
+      this.wsServer.send(clientId, 'error', {
         code: 'PROCESSING_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
       });
@@ -475,7 +425,7 @@ export class InsyServer {
     const storedDiff = this.pendingDiffs.get(payload.diffId);
 
     if (!storedDiff) {
-      this.sseServer.send(clientId, 'error', {
+      this.wsServer.send(clientId, 'error', {
         code: 'DIFF_NOT_FOUND',
         message: 'Diff not found',
       });
@@ -502,7 +452,7 @@ export class InsyServer {
       await fileWriter.deleteBackup(payload.diffId);
       this.pendingDiffs.delete(payload.diffId);
 
-      this.sseServer.send(clientId, 'accepted', {
+      this.wsServer.send(clientId, 'accepted', {
         diffId: payload.diffId,
         file: diff.file,
         success: true,
@@ -517,7 +467,7 @@ export class InsyServer {
       const result = await fileWriter.applyDiff(diff);
 
       if (result.success) {
-        this.sseServer.send(clientId, 'applied', {
+        this.wsServer.send(clientId, 'applied', {
           diffId: payload.diffId,
           file: diff.file,
           success: true,
@@ -527,14 +477,14 @@ export class InsyServer {
         // DON'T delete from pendingDiffs - keep it for undo capability
         console.log(`[Server] Applied diff ${payload.diffId}, keeping in memory for undo`);
       } else {
-        this.sseServer.send(clientId, 'error', {
+        this.wsServer.send(clientId, 'error', {
           code: 'WRITE_ERROR',
           message: result.error || 'Failed to write file',
         });
       }
     } catch (error) {
       console.error('[Server] Error applying diff:', error);
-      this.sseServer.send(clientId, 'error', {
+      this.wsServer.send(clientId, 'error', {
         code: 'WRITE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
       });
@@ -545,7 +495,7 @@ export class InsyServer {
     const storedDiff = this.pendingDiffs.get(payload.diffId);
 
     if (!storedDiff) {
-      this.sseServer.send(clientId, 'error', {
+      this.wsServer.send(clientId, 'error', {
         code: 'DIFF_NOT_FOUND',
         message: 'Diff not found',
       });
@@ -563,21 +513,21 @@ export class InsyServer {
       const success = await fileWriter.undo(payload.diffId);
 
       if (success) {
-        this.sseServer.send(clientId, 'undone', {
+        this.wsServer.send(clientId, 'undone', {
           diffId: payload.diffId,
           success: true,
         });
 
         console.log(`[Server] Undid changes for diff ${payload.diffId}`);
       } else {
-        this.sseServer.send(clientId, 'error', {
+        this.wsServer.send(clientId, 'error', {
           code: 'UNDO_ERROR',
           message: 'Failed to undo changes',
         });
       }
     } catch (error) {
       console.error('[Server] Error undoing diff:', error);
-      this.sseServer.send(clientId, 'error', {
+      this.wsServer.send(clientId, 'error', {
         code: 'UNDO_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
       });
@@ -591,7 +541,7 @@ export class InsyServer {
     const storedDiff = this.pendingDiffs.get(payload.diffId);
 
     if (!storedDiff) {
-      this.sseServer.send(clientId, 'error', {
+      this.wsServer.send(clientId, 'error', {
         code: 'DIFF_NOT_FOUND',
         message: 'Diff not found',
       });
@@ -609,7 +559,7 @@ export class InsyServer {
       const result = await fileWriter.toggle(payload.diffId);
 
       if (result.success) {
-        this.sseServer.send(clientId, 'toggled', {
+        this.wsServer.send(clientId, 'toggled', {
           diffId: payload.diffId,
           isApplied: result.isApplied,
         });
@@ -622,7 +572,7 @@ export class InsyServer {
       return result;
     } catch (error) {
       console.error('[Server] Error toggling diff:', error);
-      this.sseServer.send(clientId, 'error', {
+      this.wsServer.send(clientId, 'error', {
         code: 'TOGGLE_ERROR',
         message: error instanceof Error ? error.message : 'Unknown error',
       });
@@ -637,7 +587,7 @@ export class InsyServer {
     message: string,
     progress?: number
   ): void {
-    this.sseServer.send(clientId, 'status', {
+    this.wsServer.send(clientId, 'status', {
       instanceId,
       stage,
       message,
@@ -718,7 +668,7 @@ export class InsyServer {
         console.log(pc.bold(pc.cyan('🎨 Insy Server')));
         console.log();
         console.log(`${pc.green('✓')} Server running at ${pc.cyan(`http://${host}:${port}`)}`);
-        console.log(`${pc.green('✓')} SSE endpoint at ${pc.cyan(`http://${host}:${port}/events`)}`);
+        console.log(`${pc.green('✓')} WebSocket endpoint at ${pc.cyan(`ws://${host}:${port}/ws`)}`);
         console.log();
         console.log(pc.dim('Add this script tag to your app:'));
         console.log(pc.yellow(`  <script src="http://${host}:${port}/client.js"></script>`));
@@ -732,6 +682,9 @@ export class InsyServer {
         console.log();
       }
     );
+
+    // Attach WebSocket server to the HTTP server
+    this.wsServer.attach(server);
 
     // Handle port already in use - shouldn't happen with pre-check, but keep as fallback
     server.on('error', async (err: NodeJS.ErrnoException) => {
