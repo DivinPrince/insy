@@ -1,5 +1,5 @@
 import type { CLIToolAdapter } from './interface.js';
-import { OpenCodeCLIAdapter } from './opencode-cli.js';
+import { OpenCodeAdapter } from './opencode.js';
 
 export class AdapterRegistry {
   private adapters = new Map<string, CLIToolAdapter>();
@@ -13,7 +13,7 @@ export class AdapterRegistry {
    * Register all default adapters
    */
   registerDefaultAdapters(): void {
-    this.register(new OpenCodeCLIAdapter());
+    this.register(new OpenCodeAdapter());
   }
 
   async detectAvailable(): Promise<CLIToolAdapter[]> {
@@ -38,15 +38,15 @@ export class AdapterRegistry {
    */
   async getAvailableWithPriority(): Promise<CLIToolAdapter[]> {
     const available = await this.detectAvailable();
-    
+
     return available.sort((a, b) => {
       const aIndex = this.priorityOrder.indexOf(a.name.toLowerCase());
       const bIndex = this.priorityOrder.indexOf(b.name.toLowerCase());
-      
+
       // If adapter not in priority list, put it at the end
       const aPos = aIndex === -1 ? this.priorityOrder.length : aIndex;
       const bPos = bIndex === -1 ? this.priorityOrder.length : bIndex;
-      
+
       return aPos - bPos;
     });
   }
@@ -73,7 +73,7 @@ export class AdapterRegistry {
   async getAdapter(name?: string): Promise<CLIToolAdapter | undefined> {
     if (name) {
       const adapter = this.get(name);
-      if (adapter && await adapter.isAvailable()) {
+      if (adapter && (await adapter.isAvailable())) {
         return adapter;
       }
       console.warn(`[AdapterRegistry] Adapter '${name}' not found or not available`);

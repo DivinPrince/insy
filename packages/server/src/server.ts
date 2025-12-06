@@ -18,7 +18,7 @@ import { DiffGenerator } from './modifier/diff.js';
 import { FileWriter } from './filesystem/writer.js';
 import { ConfigLoader } from './config/loader.js';
 import { AdapterRegistry } from './adapters/registry.js';
-import { OpenCodeError } from './adapters/opencode-cli.js';
+import { OpenCodeError } from './adapters/opencode.js';
 import type { CLIToolAdapter } from './adapters/interface.js';
 import { buildContextOnlyPrompt } from './prompts/builder.js';
 import { parseStructuredResponse, isStructuredResponse } from './prompts/parser.js';

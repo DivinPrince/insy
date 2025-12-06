@@ -1,4 +1,4 @@
-import { OpenCodeCLIAdapter } from './opencode-cli.js';
+import { OpenCodeAdapter } from './opencode.js';
 import { AdapterRegistry } from './registry.js';
 
 async function testAdapter(adapter: any, name: string) {
@@ -44,7 +44,7 @@ async function testRegistry() {
   console.log('\n=== Testing Adapter Registry ===\n');
 
   const registry = new AdapterRegistry();
-  
+
   console.log('1. Registering default adapters...');
   registry.registerDefaultAdapters();
   console.log(`   Registered: ${registry.getAll().length} adapters\n`);
@@ -74,7 +74,7 @@ async function main() {
   console.log('No actual AI calls will be made (unless you uncomment test code).\n');
 
   const results = {
-    opencode: await testAdapter(new OpenCodeCLIAdapter(), 'OpenCode'),
+    opencode: await testAdapter(new OpenCodeAdapter(), 'OpenCode'),
   };
 
   const registryResults = await testRegistry();

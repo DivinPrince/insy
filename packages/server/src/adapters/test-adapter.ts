@@ -1,9 +1,9 @@
-import { OpenCodeCLIAdapter } from './opencode-cli.js';
+import { OpenCodeAdapter } from './opencode.js';
 
 async function test() {
-  const adapter = new OpenCodeCLIAdapter();
+  const adapter = new OpenCodeAdapter();
 
-  console.log('=== Testing OpenCode CLI Adapter ===\n');
+  console.log('=== Testing OpenCode SDK Adapter ===\n');
 
   // Test 1: Check availability
   console.log('1. Checking if OpenCode is available...');
@@ -11,7 +11,7 @@ async function test() {
   console.log(`   Available: ${available}\n`);
 
   if (!available) {
-    console.error('OpenCode CLI not found. Please install it first.');
+    console.error('OpenCode not available. Please ensure OpenCode is installed.');
     process.exit(1);
   }
 

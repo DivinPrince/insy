@@ -7,13 +7,14 @@ Insy supports multiple AI CLI tools through an adapter system. This allows you t
 Insy automatically detects and uses available CLI tools in this priority order:
 
 1. **OpenCode** - https://opencode.ai
-2. **Claude Code** - https://code.claude.com  
+2. **Claude Code** - https://code.claude.com
 3. **Gemini CLI** - `npm install -g @google/gemini-cli`
 4. **GitHub Copilot CLI** - `npm install -g @github/copilot`
 
 ## Installation
 
 ### OpenCode
+
 ```bash
 # macOS/Linux
 brew install opencode
@@ -23,12 +24,14 @@ brew install opencode
 ```
 
 ### Claude Code
+
 ```bash
 # Follow installation instructions at:
 # https://code.claude.com
 ```
 
 ### Gemini CLI
+
 ```bash
 npm install -g @google/gemini-cli
 
@@ -45,7 +48,8 @@ export GOOGLE_GENAI_USE_VERTEXAI=true
 export GOOGLE_CLOUD_PROJECT="your-project"
 ```
 
-### GitHub Copilot CLI  
+### GitHub Copilot CLI
+
 ```bash
 npm install -g @github/copilot
 
@@ -87,6 +91,7 @@ Valid tool names: `"opencode"`, `"claude code"`, `"gemini cli"`, `"github copilo
 ### Adapter-Specific Configuration
 
 #### OpenCode
+
 ```json
 {
   "tool": "opencode",
@@ -99,6 +104,7 @@ Valid tool names: `"opencode"`, `"claude code"`, `"gemini cli"`, `"github copilo
 ```
 
 #### Claude Code
+
 ```json
 {
   "tool": "claude code",
@@ -114,6 +120,7 @@ Valid tool names: `"opencode"`, `"claude code"`, `"gemini cli"`, `"github copilo
 ```
 
 #### Gemini CLI
+
 ```json
 {
   "tool": "gemini cli",
@@ -126,6 +133,7 @@ Valid tool names: `"opencode"`, `"claude code"`, `"gemini cli"`, `"github copilo
 ```
 
 #### GitHub Copilot CLI
+
 ```json
 {
   "tool": "github copilot cli",
@@ -146,21 +154,22 @@ npx tsx src/adapters/test-all-adapters.ts
 ```
 
 This will:
+
 - Check if each CLI tool is installed
 - Display version information
 - Show which adapter will be used by default
 
 ## Adapter Features Comparison
 
-| Feature | OpenCode | Claude Code | Gemini CLI | Copilot CLI |
-|---------|----------|-------------|------------|-------------|
-| **Non-interactive mode** | ✅ Yes | ✅ Yes | ✅ Yes | ⚠️ Limited |
-| **JSON output** | ✅ Yes | ✅ Yes | ✅ Yes | ❓ Unknown |
-| **Session management** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes |
-| **Model selection** | ✅ Yes | ✅ Yes | ✅ Yes | ✅ Yes |
-| **Custom prompts** | ✅ Yes | ✅ Yes | ❓ Partial | ❓ Unknown |
-| **Streaming** | ✅ Yes | ✅ Yes | ✅ Yes | ❓ Unknown |
-| **Auto approval** | ✅ Yes | ✅ Yes | ✅ Yes | ❌ No |
+| Feature                  | OpenCode | Claude Code | Gemini CLI | Copilot CLI |
+| ------------------------ | -------- | ----------- | ---------- | ----------- |
+| **Non-interactive mode** | ✅ Yes   | ✅ Yes      | ✅ Yes     | ⚠️ Limited  |
+| **JSON output**          | ✅ Yes   | ✅ Yes      | ✅ Yes     | ❓ Unknown  |
+| **Session management**   | ✅ Yes   | ✅ Yes      | ✅ Yes     | ✅ Yes      |
+| **Model selection**      | ✅ Yes   | ✅ Yes      | ✅ Yes     | ✅ Yes      |
+| **Custom prompts**       | ✅ Yes   | ✅ Yes      | ❓ Partial | ❓ Unknown  |
+| **Streaming**            | ✅ Yes   | ✅ Yes      | ✅ Yes     | ❓ Unknown  |
+| **Auto approval**        | ✅ Yes   | ✅ Yes      | ✅ Yes     | ❌ No       |
 
 ## Troubleshooting
 
@@ -176,19 +185,23 @@ If Insy reports that no CLI tools are available:
 ### Authentication errors
 
 **OpenCode:**
+
 - Follow the OAuth flow in your browser
 - Or set `OPENCODE_API_KEY` environment variable
 
 **Claude Code:**
+
 - Make sure you're logged in: `claude --login`
 - Check your Claude subscription status
 
 **Gemini CLI:**
+
 - Set `GEMINI_API_KEY` for API key auth
 - Or login with: `gemini` (choose "Login with Google")
 - For Vertex AI: Set `GOOGLE_API_KEY`, `GOOGLE_GENAI_USE_VERTEXAI=true`, and `GOOGLE_CLOUD_PROJECT`
 
 **Copilot CLI:**
+
 - Set `GH_TOKEN` or `GITHUB_TOKEN` with Copilot access
 - Or authenticate via `/login` command in the CLI
 
@@ -227,7 +240,7 @@ Example custom adapter:
 ```typescript
 export class MyCustomCLIAdapter implements CLIToolAdapter {
   name = 'My Custom CLI';
-  
+
   async isAvailable(): Promise<boolean> {
     try {
       await execAsync('which mycli');
@@ -266,11 +279,11 @@ registry.register(new MyCustomCLIAdapter());
 
 ```typescript
 interface RunOptions {
-  session?: string;       // Session ID for context
-  model?: string;         // AI model to use
-  format?: string;        // Output format
-  file?: string[];        // Files to attach
-  cwd?: string;           // Working directory
+  session?: string; // Session ID for context
+  model?: string; // AI model to use
+  format?: string; // Output format
+  file?: string[]; // Files to attach
+  cwd?: string; // Working directory
   continueSession?: boolean;
 }
 ```
@@ -278,10 +291,8 @@ interface RunOptions {
 ### Adapter-specific configs
 
 See individual adapter files for detailed configuration options:
-- `opencode-cli.ts` - OpenCodeConfig
-- `claude-code-cli.ts` - ClaudeCodeConfig
-- `gemini-cli.ts` - GeminiCLIConfig
-- `copilot-cli.ts` - CopilotCLIConfig
+
+- `opencode.ts` - OpenCodeConfig (uses @opencode-ai/sdk)
 
 ## License
 
