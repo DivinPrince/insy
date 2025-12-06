@@ -696,6 +696,16 @@ export class InsyServer {
     const port = this.options.port || config.server?.port || 7777;
     const host = this.options.host || config.server?.host || 'localhost';
 
+    // Check if server is already running before attempting to start
+    const isAlreadyRunning = await this.checkExistingServer(host, port);
+    if (isAlreadyRunning) {
+      console.log();
+      console.log(pc.yellow(`Insy server already running at http://${host}:${port}`));
+      console.log(pc.dim('Using existing server instance.'));
+      console.log();
+      return;
+    }
+
     // Start HTTP server
     const server = serve(
       {
@@ -723,26 +733,18 @@ export class InsyServer {
       }
     );
 
-    // Handle port already in use - check if it's already an Insy server
+    // Handle port already in use - shouldn't happen with pre-check, but keep as fallback
     server.on('error', async (err: NodeJS.ErrnoException) => {
       if (err.code === 'EADDRINUSE') {
-        const isInsyServer = await this.checkExistingServer(host, port);
-        if (isInsyServer) {
-          console.log();
-          console.log(pc.yellow(`Insy server already running at http://${host}:${port}`));
-          console.log(pc.dim('Using existing server instance.'));
-          console.log();
-        } else {
-          console.error();
-          console.error(pc.red(`✗ Port ${port} is already in use by another application.`));
-          console.error(
-            pc.dim(
-              `Run: lsof -i :${port} (macOS/Linux) or netstat -ano | findstr :${port} (Windows) to find what's using it.`
-            )
-          );
-          console.error();
-          process.exit(1);
-        }
+        console.error();
+        console.error(pc.red(`✗ Port ${port} is already in use by another application.`));
+        console.error(
+          pc.dim(
+            `Run: lsof -i :${port} (macOS/Linux) or netstat -ano | findstr :${port} (Windows) to find what's using it.`
+          )
+        );
+        console.error();
+        process.exit(1);
         return;
       }
       // Re-throw other errors

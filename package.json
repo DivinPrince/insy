@@ -2,6 +2,7 @@
   "name": "insy",
   "version": "0.1.0",
   "private": true,
+  "packageManager": "bun@1.3.1",
   "description": "AI-powered visual code editing for any frontend framework",
   "keywords": ["ai", "code-editing", "react", "vue", "html", "developer-tools"],
   "author": "Insy Team",
@@ -11,16 +12,23 @@
     "examples/*"
   ],
   "scripts": {
-    "build": "bun run --filter './packages/*' build",
-    "dev": "bun run --filter './packages/*' dev",
-    "clean": "bun run --filter './packages/*' clean",
-    "typecheck": "bun run --filter './packages/*' typecheck",
-    "lint": "bun run --filter './packages/*' lint"
+    "build": "turbo run build",
+    "dev": "turbo run dev",
+    "clean": "turbo run clean",
+    "typecheck": "turbo run typecheck",
+    "lint": "turbo run lint",
+    "changeset": "changeset",
+    "version-packages": "changeset version",
+    "publish-packages": "turbo run build lint test && changeset version && changeset publish",
+    "ci:version": "changeset version && bun install --lockfile-only",
+    "ci:publish": "turbo run build && changeset publish"
   },
   "devDependencies": {
-    "typescript": "^5.3.3",
+    "@changesets/cli": "^2.29.8",
+    "eslint": "^8.56.0",
     "prettier": "^3.1.1",
-    "eslint": "^8.56.0"
+    "turbo": "^2.3.0",
+    "typescript": "^5.3.3"
   },
   "engines": {
     "bun": ">=1.0.0"

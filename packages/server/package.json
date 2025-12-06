@@ -1,6 +1,6 @@
 {
   "name": "@insy/server",
-  "version": "0.1.0",
+  "version": "0.1.4",
   "description": "Insy local server",
   "type": "module",
   "main": "./dist/index.js",
@@ -12,10 +12,10 @@
     "dist"
   ],
   "scripts": {
-    "build": "bun tsc",
-    "dev": "bun tsc --watch",
+    "build": "tsup",
+    "dev": "tsup --watch",
     "clean": "rm -rf dist *.tsbuildinfo",
-    "typecheck": "bun tsc --noEmit",
+    "typecheck": "tsc --noEmit",
     "start": "bun dist/index.js"
   },
   "dependencies": {
@@ -32,6 +32,7 @@
     "@types/babel__traverse": "^7.20.5",
     "@types/diff": "^5.0.9",
     "@types/node": "^20.10.6",
+    "tsup": "^8.3.5",
     "typescript": "^5.3.3"
   }
 }

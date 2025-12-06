@@ -1,6 +1,6 @@
 {
   "name": "insy",
-  "version": "0.4.1",
+  "version": "0.4.5",
   "description": "AI-powered visual code editing for any frontend framework",
   "type": "module",
   "bin": {
@@ -8,10 +8,10 @@
   },
   "files": ["dist"],
   "scripts": {
-    "build": "bun tsc",
-    "dev": "bun tsc --watch",
+    "build": "tsup",
+    "dev": "tsup --watch",
     "clean": "rm -rf dist *.tsbuildinfo",
-    "typecheck": "bun tsc --noEmit"
+    "typecheck": "tsc --noEmit"
   },
   "keywords": [
     "ai",
@@ -31,6 +31,7 @@
   },
   "devDependencies": {
     "@types/node": "^20.10.6",
+    "tsup": "^8.3.5",
     "typescript": "^5.3.3"
   }
 }

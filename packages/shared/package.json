@@ -13,12 +13,13 @@
   },
   "files": ["dist"],
   "scripts": {
-    "build": "bun tsc",
-    "dev": "bun tsc --watch",
+    "build": "tsup",
+    "dev": "tsup --watch",
     "clean": "rm -rf dist *.tsbuildinfo",
-    "typecheck": "bun tsc --noEmit"
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
+    "tsup": "^8.3.5",
     "typescript": "^5.3.3"
   }
 }
