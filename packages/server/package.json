@@ -1,12 +1,12 @@
 {
-  "name": "@pixelcode/server",
+  "name": "@insy/server",
   "version": "0.1.0",
-  "description": "PixelCode local server",
+  "description": "Insy local server",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "pixelcode-server": "./dist/index.js"
+    "insy-server": "./dist/index.js"
   },
   "files": [
     "dist"
@@ -28,7 +28,7 @@
     "picocolors": "^1.0.0"
   },
   "devDependencies": {
-    "@pixelcode/shared": "workspace:*",
+    "@insy/shared": "workspace:*",
     "@types/babel__traverse": "^7.20.5",
     "@types/diff": "^5.0.9",
     "@types/node": "^20.10.6",

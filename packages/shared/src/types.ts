@@ -1,4 +1,4 @@
-// Core types for PixelCode
+// Core types for Insy
 
 // ============================================================================
 // Framework Detection
@@ -274,7 +274,7 @@ export interface ServerConfig {
   host: string;
 }
 
-export interface PixelCodeConfig {
+export interface InsyConfig {
   version: string;
   server?: ServerConfig;
   ai: AIConfig;

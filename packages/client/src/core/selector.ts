@@ -1,4 +1,4 @@
-import type { ElementInfo } from '@pixelcode/shared';
+import type { ElementInfo } from '@insy/shared';
 
 export class ElementSelector {
   private overlay: HTMLDivElement | null = null;

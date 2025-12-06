@@ -7,7 +7,7 @@ import type {
   CodeChangeAction,
   ReactContext,
   FrameworkContext,
-} from '@pixelcode/shared';
+} from '@insy/shared';
 import { StatusBadge } from './status-badge.js';
 
 // Cursor icon for element selector
@@ -247,7 +247,7 @@ export const WidgetPanel: FunctionComponent<WidgetPanelProps> = ({
                   letterSpacing: '-0.02em',
                 }}
               >
-                PixelCode
+                Insy
               </span>
               <StatusBadge connected={connected} />
             </>

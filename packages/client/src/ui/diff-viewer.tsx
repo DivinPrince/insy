@@ -1,6 +1,6 @@
 import { h } from 'preact';
 import type { FunctionComponent } from 'preact';
-import type { DiffResult } from '@pixelcode/shared';
+import type { DiffResult } from '@insy/shared';
 
 interface DiffViewerProps {
   diff: DiffResult;

@@ -1,4 +1,4 @@
-import type { CodeChange, CodeChangeAction, StructuredCodeResponse } from '@pixelcode/shared';
+import type { CodeChange, CodeChangeAction, StructuredCodeResponse } from '@insy/shared';
 
 /**
  * Parse structured XML response from AI

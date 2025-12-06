@@ -6,7 +6,7 @@ import type {
   VueContext,
   HtmlContext,
   BoundingBox,
-} from '@pixelcode/shared';
+} from '@insy/shared';
 
 // Import bippy for React fiber instrumentation
 import {
@@ -304,7 +304,7 @@ export async function getReactStack(element: Element): Promise<StackFrame[]> {
 
     return resolvedStack.filter((frame) => frame.source !== null);
   } catch (error) {
-    console.error('[PixelCode] Error getting React stack:', error);
+    console.error('[Insy] Error getting React stack:', error);
     return [];
   }
 }
@@ -364,7 +364,7 @@ export async function captureReactContextAsync(element: HTMLElement): Promise<Re
       source,
     };
   } catch (error) {
-    console.error('[PixelCode] Error capturing React context:', error);
+    console.error('[Insy] Error capturing React context:', error);
     return null;
   }
 }

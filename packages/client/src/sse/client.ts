@@ -41,14 +41,14 @@ export class SSEClient {
 
         // Handle connection open
         this.eventSource.onopen = () => {
-          console.log('[PixelCode] SSE connected');
+          console.log('[Insy] SSE connected');
           this._isConnected = true;
           this.reconnectAttempts = 0;
         };
 
         // Handle connection error
         this.eventSource.onerror = (error) => {
-          console.error('[PixelCode] SSE error:', error);
+          console.error('[Insy] SSE error:', error);
           this._isConnected = false;
 
           if (this.eventSource?.readyState === EventSource.CLOSED) {
@@ -65,12 +65,12 @@ export class SSEClient {
         this.eventSource.addEventListener('connected', (event) => {
           try {
             const data = JSON.parse((event as MessageEvent).data);
-            console.log('[PixelCode] Connected:', data.message);
+            console.log('[Insy] Connected:', data.message);
             this._isConnected = true;
             this.emit('connected', data);
             resolve();
           } catch (err) {
-            console.error('[PixelCode] Failed to parse connected event:', err);
+            console.error('[Insy] Failed to parse connected event:', err);
           }
         });
 
@@ -96,7 +96,7 @@ export class SSEClient {
           const data = JSON.parse((event as MessageEvent).data);
           this.emit(eventType, data);
         } catch (err) {
-          console.error(`[PixelCode] Failed to parse ${eventType} event:`, err);
+          console.error(`[Insy] Failed to parse ${eventType} event:`, err);
         }
       });
     }
@@ -107,7 +107,7 @@ export class SSEClient {
    */
   private attemptReconnect(): void {
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error('[PixelCode] Max reconnect attempts reached');
+      console.error('[Insy] Max reconnect attempts reached');
       return;
     }
 
@@ -115,12 +115,12 @@ export class SSEClient {
     const delay = this.reconnectDelay * this.reconnectAttempts;
 
     console.log(
-      `[PixelCode] Reconnecting in ${delay}ms... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`
+      `[Insy] Reconnecting in ${delay}ms... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`
     );
 
     setTimeout(() => {
       this.connect().catch((error) => {
-        console.error('[PixelCode] Reconnect failed:', error);
+        console.error('[Insy] Reconnect failed:', error);
       });
     }, delay);
   }
@@ -134,7 +134,7 @@ export class SSEClient {
       this.eventSource = null;
     }
     this._isConnected = false;
-    console.log('[PixelCode] SSE disconnected');
+    console.log('[Insy] SSE disconnected');
   }
 
   /**
@@ -174,7 +174,7 @@ export class SSEClient {
         try {
           handler(data);
         } catch (err) {
-          console.error(`[PixelCode] Error in ${event} handler:`, err);
+          console.error(`[Insy] Error in ${event} handler:`, err);
         }
       });
     }

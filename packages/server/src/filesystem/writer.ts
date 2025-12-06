@@ -1,6 +1,6 @@
 import { readFile, writeFile, mkdir, unlink } from 'fs/promises';
 import path from 'path';
-import type { DiffResult } from '@pixelcode/shared';
+import type { DiffResult } from '@insy/shared';
 
 interface ChangeRecord {
   diffId: string;
@@ -15,7 +15,7 @@ export class FileWriter {
   private backupDir: string;
 
   constructor(private projectRoot: string) {
-    this.backupDir = path.join(projectRoot, '.pixelcode', 'backups');
+    this.backupDir = path.join(projectRoot, '.insy', 'backups');
   }
 
   async applyDiff(

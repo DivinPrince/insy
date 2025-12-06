@@ -1,6 +1,6 @@
-import type { WidgetPreferences, RecentEdit, UserSelections } from '@pixelcode/shared';
+import type { WidgetPreferences, RecentEdit, UserSelections } from '@insy/shared';
 
-const STORAGE_PREFIX = 'pixelcode_';
+const STORAGE_PREFIX = 'insy_';
 
 export class PreferencesStore {
   private static get<T>(key: string, defaultValue: T): T {

@@ -1,4 +1,4 @@
-import type { ElementInfo, BoundingBox, SourceHints, ReactContext } from '@pixelcode/shared';
+import type { ElementInfo, BoundingBox, SourceHints, ReactContext } from '@insy/shared';
 
 // React fiber source extraction types (similar to react-grab/bippy)
 interface FiberSource {

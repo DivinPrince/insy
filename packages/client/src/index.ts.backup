@@ -24,10 +24,10 @@ import type {
   FrameworkContext,
   ReactContext,
   ConversationMessage,
-} from '@pixelcode/shared';
+} from '@insy/shared';
 
 // Injected config from server (populated when client.js is served)
-interface PixelCodeConfig {
+interface InsyConfig {
   projectPath: string;
   host: string;
   port: number;
@@ -36,12 +36,12 @@ interface PixelCodeConfig {
 
 declare global {
   interface Window {
-    __PIXELCODE_CONFIG__?: PixelCodeConfig;
+    __PIXELCODE_CONFIG__?: InsyConfig;
   }
 }
 
 // Get config from injected global or use defaults
-function getConfig(): PixelCodeConfig {
+function getConfig(): InsyConfig {
   return window.__PIXELCODE_CONFIG__ || {
     projectPath: '',
     host: 'localhost',
@@ -80,8 +80,8 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 }
 
-class PixelCode {
-  private config: PixelCodeConfig;
+class Insy {
+  private config: InsyConfig;
   private ws: WebSocketClient;
   private selector: ElementSelector;
   private isActive = false;
@@ -121,7 +121,7 @@ class PixelCode {
   constructor() {
     // Load config from injected global
     this.config = getConfig();
-    console.log('[PixelCode] Config loaded:', this.config);
+    console.log('[Insy] Config loaded:', this.config);
     
     // Load preferences
     const prefs = PreferencesStore.getWidgetPreferences();
@@ -140,23 +140,23 @@ class PixelCode {
 
     // Create UI container with Shadow DOM for style isolation
     const uiHost = document.createElement('div');
-    uiHost.setAttribute('data-pixelcode', 'true');
-    uiHost.id = 'pixelcode-ui';
+    uiHost.setAttribute('data-insy', 'true');
+    uiHost.id = 'insy-ui';
     document.body.appendChild(uiHost);
     this.uiShadowRoot = uiHost.attachShadow({ mode: 'open' });
     this.uiContainer = document.createElement('div');
-    this.uiContainer.id = 'pixelcode-ui-root';
+    this.uiContainer.id = 'insy-ui-root';
     this.uiShadowRoot.appendChild(this.createBaseStyles());
     this.uiShadowRoot.appendChild(this.uiContainer);
 
     // Create widget container with Shadow DOM for style isolation
     const widgetHost = document.createElement('div');
-    widgetHost.setAttribute('data-pixelcode', 'true');
-    widgetHost.id = 'pixelcode-widget';
+    widgetHost.setAttribute('data-insy', 'true');
+    widgetHost.id = 'insy-widget';
     document.body.appendChild(widgetHost);
     this.widgetShadowRoot = widgetHost.attachShadow({ mode: 'open' });
     this.widgetContainer = document.createElement('div');
-    this.widgetContainer.id = 'pixelcode-widget-root';
+    this.widgetContainer.id = 'insy-widget-root';
     this.widgetShadowRoot.appendChild(this.createBaseStyles());
     this.widgetShadowRoot.appendChild(this.widgetContainer);
 
@@ -187,12 +187,12 @@ class PixelCode {
       await this.ws.connect();
       this.isConnected = true;
       this.renderWidget(); // Update widget with connection status
-      this.showToast('PixelCode connected! Click the button or press ⌘+Shift+E', 'success');
+      this.showToast('Insy connected! Click the button or press ⌘+Shift+E', 'success');
     } catch (error) {
-      console.error('[PixelCode] Failed to connect:', error);
+      console.error('[Insy] Failed to connect:', error);
       this.isConnected = false;
       this.renderWidget();
-      this.showToast('Failed to connect to PixelCode server', 'error');
+      this.showToast('Failed to connect to Insy server', 'error');
     }
   }
 
@@ -752,7 +752,7 @@ class PixelCode {
   private showToast(message: string, variant: 'info' | 'success' | 'error' | 'warning'): void {
     // Create toast container with Shadow DOM
     const host = document.createElement('div');
-    host.setAttribute('data-pixelcode', 'true');
+    host.setAttribute('data-insy', 'true');
     document.body.appendChild(host);
     const shadow = host.attachShadow({ mode: 'open' });
     const container = document.createElement('div');
@@ -901,12 +901,12 @@ class PixelCode {
     // Always render button (in a Shadow DOM container for style isolation)
     if (!this.buttonContainer) {
       const buttonHost = document.createElement('div');
-      buttonHost.id = 'pixelcode-button-host';
-      buttonHost.setAttribute('data-pixelcode', 'true');
+      buttonHost.id = 'insy-button-host';
+      buttonHost.setAttribute('data-insy', 'true');
       document.body.appendChild(buttonHost);
       this.buttonShadowRoot = buttonHost.attachShadow({ mode: 'open' });
       this.buttonContainer = document.createElement('div');
-      this.buttonContainer.id = 'pixelcode-button-container';
+      this.buttonContainer.id = 'insy-button-container';
       this.buttonShadowRoot.appendChild(this.createBaseStyles());
       this.buttonShadowRoot.appendChild(this.buttonContainer);
     }
@@ -952,10 +952,10 @@ class PixelCode {
 }
 
 // Auto-initialize
-const pixelcode = new PixelCode();
-pixelcode.init().catch(console.error);
+const insy = new Insy();
+insy.init().catch(console.error);
 
 // Expose to window for manual control
-(window as any).__PIXELCODE__ = pixelcode;
+(window as any).__PIXELCODE__ = insy;
 
-console.log('[PixelCode] Client loaded. Press ⌘+Shift+P (Mac) or Ctrl+Shift+P (Windows/Linux) to activate');
+console.log('[Insy] Client loaded. Press ⌘+Shift+P (Mac) or Ctrl+Shift+P (Windows/Linux) to activate');

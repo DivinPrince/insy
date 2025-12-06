@@ -23,7 +23,7 @@ const ctx = await esbuild.context({
     'process.env.NODE_ENV': watch ? '"development"' : '"production"',
   },
   banner: {
-    js: '/* PixelCode Client v0.1.0 | MIT License */',
+    js: '/* Insy Client v0.1.0 | MIT License */',
   },
 });
 

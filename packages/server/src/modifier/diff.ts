@@ -1,7 +1,7 @@
 import { createPatch, diffLines } from 'diff';
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
-import type { DiffResult, DiffHunk, DiffChange, CodeChange } from '@pixelcode/shared';
+import type { DiffResult, DiffHunk, DiffChange, CodeChange } from '@insy/shared';
 
 export interface MultiDiffResult {
   results: DiffResult[];

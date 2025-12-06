@@ -30,8 +30,8 @@ pnpm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# PixelCode
-.pixelcode/
+# Insy
+.insy/
 
 # Temporary
 tmp/

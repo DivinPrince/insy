@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { Command } from 'commander';
-import { PixelCodeServer } from '@pixelcode/server';
+import { InsyServer } from '@insy/server';
 import pc from 'picocolors';
 import { readFile } from 'fs/promises';
 import { fileURLToPath } from 'url';
@@ -23,19 +23,19 @@ async function getVersion(): Promise<string> {
 const program = new Command();
 
 program
-  .name('pixelcode')
+  .name('insy')
   .description('AI-powered visual code editing for any frontend framework')
   .version(await getVersion());
 
 program
   .command('start', { isDefault: true })
-  .description('Start the PixelCode server')
+  .description('Start the Insy server')
   .option('-p, --port <port>', 'Port to listen on', '7777')
   .option('-h, --host <host>', 'Host to bind to', 'localhost')
   .option('--project <path>', 'Project root directory', process.cwd())
   .action(async (options) => {
     try {
-      const server = new PixelCodeServer({
+      const server = new InsyServer({
         port: parseInt(options.port, 10),
         host: options.host,
         projectRoot: options.project,
@@ -53,10 +53,10 @@ program
 
 program
   .command('init')
-  .description('Initialize PixelCode in your project')
+  .description('Initialize Insy in your project')
   .action(async () => {
     console.log();
-    console.log(pc.bold(pc.cyan('🎨 Initialize PixelCode')));
+    console.log(pc.bold(pc.cyan('🎨 Initialize Insy')));
     console.log();
     
     const config = {
@@ -67,7 +67,7 @@ program
         host: 'localhost',
       },
       opencode: {
-        session: 'PixelCode',
+        session: 'Insy',
         continueSession: true,
       },
       ui: {
@@ -81,12 +81,12 @@ program
     };
 
     const { writeFile } = await import('fs/promises');
-    await writeFile('.pixelcode.json', JSON.stringify(config, null, 2));
+    await writeFile('.insy.json', JSON.stringify(config, null, 2));
 
-    console.log(pc.green('✓ Created .pixelcode.json'));
+    console.log(pc.green('✓ Created .insy.json'));
     console.log();
     console.log('Next steps:');
-    console.log(pc.cyan('  1. Run: npx pixelcode'));
+    console.log(pc.cyan('  1. Run: npx insy'));
     console.log(pc.cyan('  2. Add the script tag to your app (shown in output)'));
     console.log(pc.cyan('  3. Press ⌘+Shift+E in your browser to activate'));
     console.log();

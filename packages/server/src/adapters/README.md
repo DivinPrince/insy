@@ -1,10 +1,10 @@
 # CLI Adapters
 
-PixelCode supports multiple AI CLI tools through an adapter system. This allows you to use your preferred AI assistant while maintaining the same PixelCode workflow.
+Insy supports multiple AI CLI tools through an adapter system. This allows you to use your preferred AI assistant while maintaining the same Insy workflow.
 
 ## Supported CLI Tools
 
-PixelCode automatically detects and uses available CLI tools in this priority order:
+Insy automatically detects and uses available CLI tools in this priority order:
 
 1. **OpenCode** - https://opencode.ai
 2. **Claude Code** - https://code.claude.com  
@@ -58,7 +58,7 @@ export GH_TOKEN="your-github-token"
 
 ### Auto-detection (Recommended)
 
-PixelCode will automatically detect and use the highest priority CLI tool available:
+Insy will automatically detect and use the highest priority CLI tool available:
 
 ```json
 {
@@ -71,7 +71,7 @@ PixelCode will automatically detect and use the highest priority CLI tool availa
 
 ### Manual Selection
 
-Specify which CLI tool to use in your configuration file (`.pixelcode.json` or `pixelcode.config.json`):
+Specify which CLI tool to use in your configuration file (`.insy.json` or `insy.config.json`):
 
 ```json
 {
@@ -166,7 +166,7 @@ This will:
 
 ### No CLI tools found
 
-If PixelCode reports that no CLI tools are available:
+If Insy reports that no CLI tools are available:
 
 1. Verify installation: `which opencode` (or `which claude`, `which gemini`, `which copilot`)
 2. Check PATH: Make sure the CLI binary is in your PATH

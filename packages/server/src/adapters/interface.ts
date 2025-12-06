@@ -1,5 +1,5 @@
 // CLI Tool Adapter Interface
-// This allows PixelCode to work with different CLI tools (OpenCode, Claude Code, etc.)
+// This allows Insy to work with different CLI tools (OpenCode, Claude Code, etc.)
 
 // Local type for adapter module (not exported from shared anymore)
 export interface ModelInfo {

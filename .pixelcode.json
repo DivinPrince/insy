@@ -3,14 +3,14 @@
   "tool": "opencode",
   "project": {
     "path": "D:\\insy",
-    "name": "PixelCode"
+    "name": "Insy"
   },
   "server": {
     "port": 7777,
     "host": "localhost"
   },
   "opencode": {
-    "session": "PixelCode",
+    "session": "Insy",
     "continueSession": true
   },
   "ui": {

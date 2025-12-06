@@ -1,11 +1,11 @@
-# PixelCode
+# Insy
 
 > AI-powered visual code editing for any frontend framework
 
-[![npm version](https://img.shields.io/npm/v/pixelcode.svg)](https://www.npmjs.com/package/pixelcode)
+[![npm version](https://img.shields.io/npm/v/insy.svg)](https://www.npmjs.com/package/insy)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
 
-PixelCode bridges the gap between live browser environments and AI coding agents. Select any UI element, describe your change, and watch AI modify your source code in real-time.
+Insy bridges the gap between live browser environments and AI coding agents. Select any UI element, describe your change, and watch AI modify your source code in real-time.
 
 ## Features
 
@@ -23,10 +23,10 @@ PixelCode bridges the gap between live browser environments and AI coding agents
 
 ```bash
 # Global installation
-npm install -g pixelcode
+npm install -g insy
 
 # Or use npx (no install required)
-npx pixelcode
+npx insy
 ```
 
 ### Usage
@@ -34,7 +34,7 @@ npx pixelcode
 1. **Start the server** in your project directory:
 
 ```bash
-npx pixelcode
+npx insy
 ```
 
 2. **Add the script** to your app (shown in terminal output):
@@ -43,7 +43,7 @@ npx pixelcode
 <script src="http://localhost:7777/client.js"></script>
 ```
 
-3. **Use PixelCode**:
+3. **Use Insy**:
    - Press `⌘+Shift+P` (Mac) or `Ctrl+Shift+P` (Windows/Linux)
    - Click any element on your page
    - Describe your change in natural language
@@ -51,7 +51,7 @@ npx pixelcode
 
 ## Configuration
 
-Create a `.pixelcode.json` in your project root:
+Create a `.insy.json` in your project root:
 
 ```json
 {
@@ -85,7 +85,7 @@ npm install
 npm run dev
 
 # In another terminal
-npx pixelcode
+npx insy
 ```
 
 ## Documentation
@@ -131,7 +131,7 @@ We welcome contributions! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for de
 
 ## License
 
-MIT © PixelCode Team
+MIT © Insy Team
 
 ## Acknowledgments
 

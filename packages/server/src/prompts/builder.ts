@@ -1,4 +1,4 @@
-import type { ElementContext, ConversationMessage } from '@pixelcode/shared';
+import type { ElementContext, ConversationMessage } from '@insy/shared';
 
 /**
  * Build a prompt for the AI that includes the full element context
@@ -47,7 +47,7 @@ ${conversationHistory.map(msg => {
 `;
   }
 
-  return `# PixelCode Edit Request
+  return `# Insy Edit Request
 
 =================================================================
 CRITICAL OUTPUT FORMAT REQUIREMENT
@@ -228,7 +228,7 @@ ${conversationHistory.map(msg => {
 `;
   }
 
-  return `# PixelCode Edit Request
+  return `# Insy Edit Request
 
 =================================================================
 CRITICAL OUTPUT FORMAT REQUIREMENT

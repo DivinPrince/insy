@@ -6,7 +6,7 @@ import type {
   CodeChangeAction,
   FrameworkContext,
   ReactContext,
-} from '@pixelcode/shared';
+} from '@insy/shared';
 
 export type QuickEditState = 'prompt' | 'loading' | 'changes';
 

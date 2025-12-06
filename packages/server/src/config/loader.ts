@@ -35,16 +35,16 @@ export class ConfigLoader {
   async load(): Promise<Config> {
     if (this.config) return this.config;
 
-    // Try to load from .pixelcode.json
-    const configPath = path.join(this.projectRoot, '.pixelcode.json');
+    // Try to load from .insy.json
+    const configPath = path.join(this.projectRoot, '.insy.json');
     try {
       const content = await readFile(configPath, 'utf-8');
       this.config = JSON.parse(content);
-      console.log('[Config] Loaded from .pixelcode.json');
+      console.log('[Config] Loaded from .insy.json');
     } catch {
       // Config file doesn't exist, use defaults
       this.config = this.getDefaults();
-      console.log('[Config] Using defaults (no .pixelcode.json found)');
+      console.log('[Config] Using defaults (no .insy.json found)');
     }
 
     // Override with environment variables
@@ -62,7 +62,7 @@ export class ConfigLoader {
         host: 'localhost',
       },
       opencode: {
-        session: 'PixelCode',
+        session: 'Insy',
         continueSession: true,
       },
       ui: {

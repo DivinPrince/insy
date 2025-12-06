@@ -15,7 +15,7 @@ export type SSEEventType =
   | 'accepted'
   | 'error';
 
-export class PixelCodeSSEServer {
+export class InsySSEServer {
   private clients = new Map<string, SSEClientStream>();
 
   /**
@@ -56,7 +56,7 @@ export class PixelCodeSSEServer {
     console.log(`[SSE] Client connected: ${clientId} (total: ${this.clients.size})`);
 
     // Send immediate "connected" event
-    write(this.formatSSE('connected', { message: 'Connected to PixelCode', clientId }));
+    write(this.formatSSE('connected', { message: 'Connected to Insy', clientId }));
 
     // Return SSE response
     return new Response(stream.readable, {

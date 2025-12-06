@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 
-import { PixelCodeServer } from './server.js';
+import { InsyServer } from './server.js';
 
 // Export for programmatic use
-export { PixelCodeServer } from './server.js';
-export type * from '@pixelcode/shared';
+export { InsyServer } from './server.js';
+export type * from '@insy/shared';
 
 async function main() {
-  const server = new PixelCodeServer({
+  const server = new InsyServer({
     projectRoot: process.cwd(),
   });
 

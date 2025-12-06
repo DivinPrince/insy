@@ -1,10 +1,10 @@
 {
-  "name": "pixelcode",
-  "version": "0.1.0",
+  "name": "insy",
+  "version": "0.4.1",
   "description": "AI-powered visual code editing for any frontend framework",
   "type": "module",
   "bin": {
-    "pixelcode": "./dist/index.js"
+    "insy": "./dist/index.js"
   },
   "files": ["dist"],
   "scripts": {
@@ -22,10 +22,10 @@
     "developer-tools",
     "opencode"
   ],
-  "author": "PixelCode Team",
+  "author": "Insy Team",
   "license": "MIT",
   "dependencies": {
-    "@pixelcode/server": "workspace:*",
+    "@insy/server": "workspace:*",
     "commander": "^11.1.0",
     "picocolors": "^1.0.0"
   },

@@ -1,4 +1,4 @@
-/* PixelCode Client v0.1.0 | MIT License */
+/* Insy Client v0.1.0 | MIT License */
 "use strict";
 (() => {
   var __create = Object.create;
@@ -8336,7 +8336,7 @@
         try {
           this.ws = new WebSocket(this.url);
           this.ws.onopen = () => {
-            console.log("[PixelCode] Connected to server");
+            console.log("[Insy] Connected to server");
             this.reconnectAttempts = 0;
             resolve();
           };
@@ -8345,15 +8345,15 @@
               const message = JSON.parse(event.data);
               this.handlers.forEach((handler) => handler(message));
             } catch (error) {
-              console.error("[PixelCode] Failed to parse message:", error);
+              console.error("[Insy] Failed to parse message:", error);
             }
           };
           this.ws.onerror = (error) => {
-            console.error("[PixelCode] WebSocket error:", error);
+            console.error("[Insy] WebSocket error:", error);
             reject(error);
           };
           this.ws.onclose = () => {
-            console.log("[PixelCode] Disconnected from server");
+            console.log("[Insy] Disconnected from server");
             this.attemptReconnect();
           };
         } catch (error) {
@@ -8363,22 +8363,22 @@
     }
     attemptReconnect() {
       if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-        console.error("[PixelCode] Max reconnect attempts reached");
+        console.error("[Insy] Max reconnect attempts reached");
         return;
       }
       this.reconnectAttempts++;
       console.log(
-        `[PixelCode] Reconnecting... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`
+        `[Insy] Reconnecting... (${this.reconnectAttempts}/${this.maxReconnectAttempts})`
       );
       setTimeout(() => {
         this.connect().catch((error) => {
-          console.error("[PixelCode] Reconnect failed:", error);
+          console.error("[Insy] Reconnect failed:", error);
         });
       }, this.reconnectDelay * this.reconnectAttempts);
     }
     send(message) {
       if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-        console.error("[PixelCode] WebSocket not connected");
+        console.error("[Insy] WebSocket not connected");
         return;
       }
       this.ws.send(JSON.stringify(message));
@@ -8412,7 +8412,7 @@
         if (!this.isActive)
           return;
         const element = document.elementFromPoint(e3.clientX, e3.clientY);
-        if (!element || this.isPixelCodeElement(element)) {
+        if (!element || this.isInsyElement(element)) {
           this.hideOverlay();
           this.hideLabel();
           return;
@@ -8427,7 +8427,7 @@
         e3.preventDefault();
         e3.stopPropagation();
         const element = this.hoveredElement;
-        if (this.isPixelCodeElement(element))
+        if (this.isInsyElement(element))
           return;
         Promise.resolve().then(() => (init_capture(), capture_exports)).then(({ captureElement: captureElement3 }) => {
           const info = captureElement3(element);
@@ -8521,8 +8521,8 @@
         this.label.style.display = "none";
       }
     }
-    isPixelCodeElement(element) {
-      return element.closest("[data-pixelcode]") !== null;
+    isInsyElement(element) {
+      return element.closest("[data-insy]") !== null;
     }
     destroy() {
       this.deactivate();
@@ -9173,7 +9173,7 @@
   };
 
   // src/index.ts
-  var PixelCode = class {
+  var Insy = class {
     constructor() {
       __publicField(this, "ws");
       __publicField(this, "selector");
@@ -9181,8 +9181,8 @@
       __publicField(this, "currentElementId", null);
       __publicField(this, "uiContainer");
       this.uiContainer = document.createElement("div");
-      this.uiContainer.setAttribute("data-pixelcode", "true");
-      this.uiContainer.id = "pixelcode-ui";
+      this.uiContainer.setAttribute("data-insy", "true");
+      this.uiContainer.id = "insy-ui";
       document.body.appendChild(this.uiContainer);
       const wsUrl = this.getWebSocketUrl();
       this.ws = new WebSocketClient(wsUrl);
@@ -9198,10 +9198,10 @@
     async init() {
       try {
         await this.ws.connect();
-        this.showToast("PixelCode connected! Press \u2318+Shift+E to activate", "success");
+        this.showToast("Insy connected! Press \u2318+Shift+E to activate", "success");
       } catch (error) {
-        console.error("[PixelCode] Failed to connect:", error);
-        this.showToast("Failed to connect to PixelCode server", "error");
+        console.error("[Insy] Failed to connect:", error);
+        this.showToast("Failed to connect to Insy server", "error");
       }
     }
     setupKeyboardShortcut() {
@@ -9361,7 +9361,7 @@
     }
     showToast(message, variant) {
       const container = document.createElement("div");
-      container.setAttribute("data-pixelcode", "true");
+      container.setAttribute("data-insy", "true");
       document.body.appendChild(container);
       G(
         /* @__PURE__ */ u3(
@@ -9398,10 +9398,10 @@
       this.uiContainer.remove();
     }
   };
-  var pixelcode = new PixelCode();
-  pixelcode.init().catch(console.error);
-  window.__PIXELCODE__ = pixelcode;
-  console.log("[PixelCode] Client loaded. Press \u2318+Shift+P (Mac) or Ctrl+Shift+P (Windows/Linux) to activate");
+  var insy = new Insy();
+  insy.init().catch(console.error);
+  window.__PIXELCODE__ = insy;
+  console.log("[Insy] Client loaded. Press \u2318+Shift+P (Mac) or Ctrl+Shift+P (Windows/Linux) to activate");
 })();
 /*! Bundled license information:
 

@@ -10,9 +10,9 @@ import type {
   DiffApprovalPayload,
   StatusUpdatePayload,
   CodeChangeAction,
-} from '@pixelcode/shared';
+} from '@insy/shared';
 
-import { PixelCodeSSEServer } from './sse/server.js';
+import { InsySSEServer } from './sse/server.js';
 import { SourceFileFinder } from './analyzer/finder.js';
 import { DiffGenerator } from './modifier/diff.js';
 import { FileWriter } from './filesystem/writer.js';
@@ -32,9 +32,9 @@ export interface ServerOptions {
   projectRoot?: string;
 }
 
-export class PixelCodeServer {
+export class InsyServer {
   private app: Hono;
-  private sseServer: PixelCodeSSEServer;
+  private sseServer: InsySSEServer;
   private configLoader: ConfigLoader;
   private defaultProjectRoot: string;
   private adapterRegistry: AdapterRegistry;
@@ -55,7 +55,7 @@ export class PixelCodeServer {
     this.app = new Hono();
     this.defaultProjectRoot = options.projectRoot || process.cwd();
     this.configLoader = new ConfigLoader(this.defaultProjectRoot);
-    this.sseServer = new PixelCodeSSEServer();
+    this.sseServer = new InsySSEServer();
     this.adapterRegistry = new AdapterRegistry();
 
     this.setupRoutes();
@@ -318,7 +318,7 @@ export class PixelCodeServer {
 
       const config = this.configLoader.get();
       // Use sessionId from payload (unique per chat) or fallback to config
-      const sessionId = payload.sessionId || config.opencode?.session || 'pixelcode-default';
+      const sessionId = payload.sessionId || config.opencode?.session || 'insy-default';
       console.log(`[Server] Using session: ${sessionId}`);
 
       const cliResponse = await this.currentAdapter.run(prompt, {
@@ -645,6 +645,16 @@ export class PixelCodeServer {
     } as StatusUpdatePayload);
   }
 
+  private async checkExistingServer(host: string, port: number): Promise<boolean> {
+    try {
+      const response = await fetch(`http://${host}:${port}/health`);
+      const data = (await response.json()) as { status?: string };
+      return data.status === 'ok';
+    } catch {
+      return false;
+    }
+  }
+
   async start(): Promise<void> {
     // Load config
     await this.configLoader.load();
@@ -661,7 +671,7 @@ export class PixelCodeServer {
       console.error();
       console.error(pc.red('✗ No CLI tools found'));
       console.error();
-      console.error('PixelCode requires at least one AI CLI tool to be installed.');
+      console.error('Insy requires at least one AI CLI tool to be installed.');
       console.error();
       console.error('Supported CLI tools (in order of priority):');
       console.error(pc.cyan('  1. OpenCode:        https://opencode.ai'));
@@ -687,7 +697,7 @@ export class PixelCodeServer {
     const host = this.options.host || config.server?.host || 'localhost';
 
     // Start HTTP server
-    serve(
+    const server = serve(
       {
         fetch: this.app.fetch,
         port,
@@ -695,7 +705,7 @@ export class PixelCodeServer {
       },
       () => {
         console.log();
-        console.log(pc.bold(pc.cyan('🎨 PixelCode Server')));
+        console.log(pc.bold(pc.cyan('🎨 Insy Server')));
         console.log();
         console.log(`${pc.green('✓')} Server running at ${pc.cyan(`http://${host}:${port}`)}`);
         console.log(`${pc.green('✓')} SSE endpoint at ${pc.cyan(`http://${host}:${port}/events`)}`);
@@ -712,5 +722,31 @@ export class PixelCodeServer {
         console.log();
       }
     );
+
+    // Handle port already in use - check if it's already an Insy server
+    server.on('error', async (err: NodeJS.ErrnoException) => {
+      if (err.code === 'EADDRINUSE') {
+        const isInsyServer = await this.checkExistingServer(host, port);
+        if (isInsyServer) {
+          console.log();
+          console.log(pc.yellow(`Insy server already running at http://${host}:${port}`));
+          console.log(pc.dim('Using existing server instance.'));
+          console.log();
+        } else {
+          console.error();
+          console.error(pc.red(`✗ Port ${port} is already in use by another application.`));
+          console.error(
+            pc.dim(
+              `Run: lsof -i :${port} (macOS/Linux) or netstat -ano | findstr :${port} (Windows) to find what's using it.`
+            )
+          );
+          console.error();
+          process.exit(1);
+        }
+        return;
+      }
+      // Re-throw other errors
+      throw err;
+    });
   }
 }

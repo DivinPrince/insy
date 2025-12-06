@@ -13,7 +13,7 @@ import type {
   StatusUpdatePayload,
   MultiDiffGeneratedPayload,
   DiffAppliedPayload,
-} from '@pixelcode/shared';
+} from '@insy/shared';
 
 // Simple ID generator
 function generateId(): string {

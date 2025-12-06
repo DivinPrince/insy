@@ -69,7 +69,7 @@ async function testRegistry() {
 }
 
 async function main() {
-  console.log('🧪 PixelCode CLI Adapter Test Suite\n');
+  console.log('🧪 Insy CLI Adapter Test Suite\n');
   console.log('This will check which CLI tools are available on your system.');
   console.log('No actual AI calls will be made (unless you uncomment test code).\n');
 

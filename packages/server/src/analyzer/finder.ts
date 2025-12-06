@@ -1,7 +1,7 @@
 import fg from 'fast-glob';
 import { readFile } from 'fs/promises';
 import path from 'path';
-import type { ElementContext, SourceFile } from '@pixelcode/shared';
+import type { ElementContext, SourceFile } from '@insy/shared';
 
 const glob = fg;
 

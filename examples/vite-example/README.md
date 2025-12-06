@@ -1,6 +1,6 @@
-# React + TypeScript + Vite + PixelCode
+# React + TypeScript + Vite + Insy
 
-This example demonstrates how to integrate PixelCode with a Vite + React application for AI-powered visual editing.
+This example demonstrates how to integrate Insy with a Vite + React application for AI-powered visual editing.
 
 ## Quick Start
 
@@ -14,14 +14,14 @@ This example demonstrates how to integrate PixelCode with a Vite + React applica
    bun run dev
    ```
 
-3. **In another terminal, start the PixelCode server:**
+3. **In another terminal, start the Insy server:**
    ```bash
    cd ../..
-   npx pixelcode
-   # or: bun run --filter @pixelcode/server dev
+   npx insy
+   # or: bun run --filter @insy/server dev
    ```
 
-4. **Use PixelCode:**
+4. **Use Insy:**
    - Open http://localhost:5173 in your browser
    - Press `Ctrl+Shift+P` (Windows/Linux) or `⌘+Shift+P` (Mac)
    - Click any element on the page
@@ -30,7 +30,7 @@ This example demonstrates how to integrate PixelCode with a Vite + React applica
 
 ## How It Works
 
-The PixelCode client script is loaded via a `<script>` tag in `index.html`:
+The Insy client script is loaded via a `<script>` tag in `index.html`:
 
 ```html
 <script src="http://localhost:7777/client.js"></script>
