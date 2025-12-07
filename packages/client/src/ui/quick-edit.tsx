@@ -6,7 +6,23 @@ import type {
   CodeChangeAction,
   FrameworkContext,
   ReactContext,
+  FileAttachment,
 } from '@insy/shared';
+
+// Constants for attachments
+const MAX_IMAGES = 5;
+const MAX_FILE_SIZE = 5 * 1024 * 1024; // 5MB
+const ALLOWED_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
+
+// Helper to convert file to data URL
+function fileToDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+}
 
 export type QuickEditState = 'prompt' | 'loading' | 'changes';
 
@@ -30,7 +46,7 @@ export interface QuickEditProps {
   statusMessage?: string;
 
   // Actions
-  onSubmit: (instanceId: string, prompt: string) => void;
+  onSubmit: (instanceId: string, prompt: string, attachments?: FileAttachment[]) => void;
   onClose: () => void;
   onCompact: () => void;
 
@@ -138,6 +154,21 @@ const EyeOffIcon = () => (
   </svg>
 );
 
+const AttachIcon = () => (
+  <svg
+    width="16"
+    height="16"
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="2"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48" />
+  </svg>
+);
+
 export const QuickEdit: FunctionComponent<QuickEditProps> = ({
   instanceId,
   targetElement,
@@ -156,7 +187,9 @@ export const QuickEdit: FunctionComponent<QuickEditProps> = ({
   isCompact = false,
 }) => {
   const [inputValue, setInputValue] = useState('');
+  const [attachments, setAttachments] = useState<FileAttachment[]>([]);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   // Track which diffs have preview enabled (changes visible)
   const [previewEnabled, setPreviewEnabled] = useState<Record<string, boolean>>(() => {
     // Default: all diffs start with preview ON (changes are auto-applied)
@@ -231,8 +264,9 @@ export const QuickEdit: FunctionComponent<QuickEditProps> = ({
   const handleSubmit = (e?: Event) => {
     e?.preventDefault();
     if (inputValue.trim() && state === 'prompt') {
-      onSubmit(instanceId, inputValue.trim());
+      onSubmit(instanceId, inputValue.trim(), attachments.length > 0 ? attachments : undefined);
       setInputValue('');
+      setAttachments([]);
     }
   };
 
@@ -244,6 +278,69 @@ export const QuickEdit: FunctionComponent<QuickEditProps> = ({
       e.preventDefault();
       handleSubmit();
     }
+  };
+
+  // Add image attachment from file
+  const addImageAttachment = async (file: File) => {
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      console.warn(`[QuickEdit] Invalid file type: ${file.type}`);
+      return;
+    }
+    if (file.size > MAX_FILE_SIZE) {
+      console.warn(`[QuickEdit] File too large: ${file.size} bytes`);
+      return;
+    }
+    if (attachments.length >= MAX_IMAGES) {
+      console.warn(`[QuickEdit] Max ${MAX_IMAGES} images allowed`);
+      return;
+    }
+
+    try {
+      const dataUrl = await fileToDataUrl(file);
+      const attachment: FileAttachment = {
+        type: 'image',
+        mime: file.type,
+        filename: file.name,
+        url: dataUrl,
+      };
+      setAttachments((prev) => [...prev, attachment]);
+    } catch (error) {
+      console.error('[QuickEdit] Failed to read file:', error);
+    }
+  };
+
+  // Handle file input change
+  const handleFileSelect = async (e: Event) => {
+    const input = e.target as HTMLInputElement;
+    const files = input.files;
+    if (!files) return;
+
+    for (const file of Array.from(files)) {
+      await addImageAttachment(file);
+    }
+    // Reset input so same file can be selected again
+    input.value = '';
+  };
+
+  // Handle paste event for images
+  const handlePaste = async (e: ClipboardEvent) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+
+    for (const item of Array.from(items)) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        if (file) {
+          await addImageAttachment(file);
+        }
+      }
+    }
+  };
+
+  // Remove attachment
+  const handleRemoveAttachment = (index: number) => {
+    setAttachments((prev) => prev.filter((_, i) => i !== index));
   };
 
   // Auto-resize textarea
@@ -260,6 +357,18 @@ export const QuickEdit: FunctionComponent<QuickEditProps> = ({
       textareaRef.current.focus();
     }
   }, [state, isCompact]);
+
+  // Listen for paste events on the textarea
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+
+    const pasteHandler = (e: Event) => handlePaste(e as unknown as ClipboardEvent);
+    textarea.addEventListener('paste', pasteHandler);
+    return () => {
+      textarea.removeEventListener('paste', pasteHandler);
+    };
+  }, [attachments.length]); // Re-attach when attachments change to get latest count
 
   // Compact mode rendering
   if (isCompact) {
@@ -445,6 +554,66 @@ export const QuickEdit: FunctionComponent<QuickEditProps> = ({
                 overflow: 'hidden',
               }}
             >
+              {/* Attachment thumbnails */}
+              {attachments.length > 0 && (
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: '6px',
+                    padding: '8px 12px',
+                    borderBottom: '1px solid #e5e5e5',
+                  }}
+                >
+                  {attachments.map((attachment, index) => (
+                    <div
+                      key={index}
+                      style={{
+                        position: 'relative',
+                        width: '48px',
+                        height: '48px',
+                        borderRadius: '6px',
+                        overflow: 'hidden',
+                        border: '1px solid #ddd',
+                      }}
+                    >
+                      <img
+                        src={attachment.url}
+                        alt={attachment.filename || 'Attached image'}
+                        style={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                        }}
+                      />
+                      <button
+                        onClick={() => handleRemoveAttachment(index)}
+                        style={{
+                          position: 'absolute',
+                          top: '-4px',
+                          right: '-4px',
+                          width: '16px',
+                          height: '16px',
+                          borderRadius: '50%',
+                          background: '#dc2626',
+                          border: 'none',
+                          color: '#fff',
+                          fontSize: '10px',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          lineHeight: 1,
+                        }}
+                        title="Remove"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
               <textarea
                 ref={textareaRef}
                 value={inputValue}
@@ -468,17 +637,55 @@ export const QuickEdit: FunctionComponent<QuickEditProps> = ({
                 }}
               />
 
+              {/* Hidden file input */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/png,image/jpeg,image/gif,image/webp"
+                multiple
+                onChange={handleFileSelect}
+                style={{ display: 'none' }}
+              />
+
               {/* Bottom bar */}
               <div
                 style={{
                   display: 'flex',
                   alignItems: 'center',
-                  justifyContent: 'flex-end',
+                  justifyContent: 'space-between',
                   padding: '8px 10px',
                   borderTop: '1px solid #e5e5e5',
                   backgroundColor: '#fafafa',
                 }}
               >
+                {/* Attach button */}
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={attachments.length >= MAX_IMAGES}
+                  style={{
+                    width: '28px',
+                    height: '28px',
+                    padding: '0',
+                    border: 'none',
+                    borderRadius: '6px',
+                    backgroundColor: 'transparent',
+                    color: attachments.length >= MAX_IMAGES ? '#ccc' : '#666',
+                    cursor: attachments.length >= MAX_IMAGES ? 'not-allowed' : 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'all 0.15s ease',
+                  }}
+                  title={
+                    attachments.length >= MAX_IMAGES
+                      ? `Max ${MAX_IMAGES} images`
+                      : 'Attach image (paste also works)'
+                  }
+                >
+                  <AttachIcon />
+                </button>
+
                 {/* Send button */}
                 <button
                   type="button"

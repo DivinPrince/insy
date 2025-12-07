@@ -146,6 +146,17 @@ export interface DiffResult {
 }
 
 // ============================================================================
+// File Attachments (Images)
+// ============================================================================
+
+export interface FileAttachment {
+  type: 'image';
+  mime: string; // e.g., 'image/png', 'image/jpeg', 'image/gif', 'image/webp'
+  filename?: string;
+  url: string; // base64 data URL
+}
+
+// ============================================================================
 // WebSocket Messages
 // ============================================================================
 
@@ -207,6 +218,7 @@ export interface PromptSubmitPayload {
   sessionId?: string; // Unique session ID per chat conversation
   conversationHistory?: ConversationMessage[]; // Full conversation history
   projectPath?: string; // Project root path for this request
+  attachments?: FileAttachment[]; // Image attachments
 }
 
 export interface DiffApprovalPayload {

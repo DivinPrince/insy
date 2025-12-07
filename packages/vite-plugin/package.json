@@ -1,0 +1,42 @@
+{
+  "name": "@insy/vite",
+  "version": "0.0.1",
+  "description": "Vite plugin for Insy - AI-powered visual editing",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "clean": "rm -rf dist *.tsbuildinfo",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@insy/server": "workspace:*"
+  },
+  "devDependencies": {
+    "tsup": "^8.3.5",
+    "typescript": "^5.3.3"
+  },
+  "peerDependencies": {
+    "vite": ">=4.0.0"
+  },
+  "keywords": [
+    "vite",
+    "vite-plugin",
+    "insy",
+    "ai",
+    "visual-editing",
+    "react"
+  ],
+  "license": "MIT"
+}

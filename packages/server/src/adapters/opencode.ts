@@ -28,42 +28,63 @@ const OPENCODE_PORT = 7878;
 export class OpenCodeAdapter implements CLIToolAdapter {
   name = 'OpenCode';
 
-  private client: OpencodeClient | null = null;
   private serverInstance: OpencodeInstance | null = null;
+  private serverReady = false;
+  // Cache clients per project directory
+  private clientCache = new Map<string, OpencodeClient>();
 
   constructor(private config: OpenCodeConfig = {}) {}
 
   /**
-   * Lazily initialize the client - try connecting to existing server first,
-   * then start a new one if needed
+   * Ensure the OpenCode server is running
    */
-  private async ensureClient(): Promise<OpencodeClient> {
-    if (this.client) return this.client;
+  private async ensureServer(): Promise<void> {
+    if (this.serverReady) return;
 
     const baseUrl = `http://localhost:${OPENCODE_PORT}`;
 
     try {
       // Try connecting to existing server first
-      this.client = createOpencodeClient({ baseUrl });
-      // Test connection by fetching config
-      await this.client.config.get();
+      const testClient = createOpencodeClient({ baseUrl });
+      await testClient.config.get();
       console.log(`[OpenCode] Connected to existing server at ${baseUrl}`);
+      this.serverReady = true;
     } catch {
       // No server running, start one
       console.log('[OpenCode] No server found, starting new instance...');
       this.serverInstance = await createOpencode({
         port: OPENCODE_PORT,
       });
-      this.client = this.serverInstance.client;
       console.log(`[OpenCode] Server started at ${this.serverInstance.server.url}`);
+      this.serverReady = true;
+    }
+  }
+
+  /**
+   * Get or create a client for a specific project directory
+   */
+  private async getClientForDirectory(directory?: string): Promise<OpencodeClient> {
+    await this.ensureServer();
+
+    const baseUrl = `http://localhost:${OPENCODE_PORT}`;
+    const cacheKey = directory || '__default__';
+
+    let client = this.clientCache.get(cacheKey);
+    if (!client) {
+      console.log(`[OpenCode] Creating client for directory: ${directory || '(default)'}`);
+      client = createOpencodeClient({ 
+        baseUrl,
+        directory: directory,
+      });
+      this.clientCache.set(cacheKey, client);
     }
 
-    return this.client;
+    return client;
   }
 
   async isAvailable(): Promise<boolean> {
     try {
-      await this.ensureClient();
+      await this.ensureServer();
       return true;
     } catch (error) {
       console.warn('[OpenCode] Not available:', error);
@@ -78,7 +99,7 @@ export class OpenCodeAdapter implements CLIToolAdapter {
 
   async getAvailableModels(): Promise<ModelInfo[]> {
     try {
-      const client = await this.ensureClient();
+      const client = await this.getClientForDirectory();
       const result = await client.config.providers();
 
       const models: ModelInfo[] = [];
@@ -109,11 +130,15 @@ export class OpenCodeAdapter implements CLIToolAdapter {
   }
 
   async run(prompt: string, options?: RunOptions): Promise<string> {
-    const client = await this.ensureClient();
+    // Get client for the specific project directory
+    const client = await this.getClientForDirectory(options?.cwd);
 
     // Create a new session for this chat
     const sessionTitle = options?.session || this.config.session || `insy-${Date.now()}`;
     console.log(`[OpenCode] Creating session: ${sessionTitle}`);
+    if (options?.cwd) {
+      console.log(`[OpenCode] Working directory: ${options.cwd}`);
+    }
 
     try {
       const sessionResult = await client.session.create({
@@ -136,19 +161,20 @@ export class OpenCodeAdapter implements CLIToolAdapter {
         modelConfig = { providerID, modelID };
       }
 
-      console.log('[OpenCode] Sending prompt...');
+      console.log('[OpenCode] Sending prompt...', modelConfig);
 
       // Send prompt and get response
       const response = await client.session.prompt({
         path: { id: session.id },
         body: {
-          model: modelConfig,
           parts: [{ type: 'text', text: prompt }],
         },
       });
 
       // Handle both response styles
       const responseData = (response as any).data || response;
+
+      console.log(responseData);
 
       // Extract text from response parts
       let fullText = '';

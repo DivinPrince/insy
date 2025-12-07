@@ -13,11 +13,68 @@ import type {
   StatusUpdatePayload,
   MultiDiffGeneratedPayload,
   DiffAppliedPayload,
+  FileAttachment,
 } from '@insy/shared';
+
+// Declare globals injected by framework plugins
+declare global {
+  interface Window {
+    __INSY_PROJECT_ROOT__?: string;
+    __INSY_SERVER_PORT__?: number;
+    __PIXELCODE_CONFIG__?: {
+      projectPath?: string;
+      host?: string;
+      port?: number;
+      projectName?: string;
+    };
+  }
+  var __INSY_PROJECT_ROOT__: string | undefined;
+  var __INSY_SERVER_PORT__: number | undefined;
+}
 
 // Simple ID generator
 function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+/**
+ * Get project root from injected globals
+ * Priority: 1. __INSY_PROJECT_ROOT__ (from framework plugins)
+ *           2. __PIXELCODE_CONFIG__.projectPath (from server-injected client.js)
+ */
+function getProjectRoot(): string {
+  // Try framework plugin global first
+  if (typeof __INSY_PROJECT_ROOT__ !== 'undefined' && __INSY_PROJECT_ROOT__) {
+    return __INSY_PROJECT_ROOT__;
+  }
+
+  // Try window global (for bundlers that scope differently)
+  if (typeof window !== 'undefined' && window.__INSY_PROJECT_ROOT__) {
+    return window.__INSY_PROJECT_ROOT__;
+  }
+
+  // Fallback to legacy config
+  if (typeof window !== 'undefined' && window.__PIXELCODE_CONFIG__?.projectPath) {
+    return window.__PIXELCODE_CONFIG__.projectPath;
+  }
+
+  return '';
+}
+
+/**
+ * Get server port from injected globals
+ */
+function getServerPort(): number {
+  if (typeof __INSY_SERVER_PORT__ !== 'undefined') {
+    return __INSY_SERVER_PORT__;
+  }
+  if (typeof window !== 'undefined' && window.__INSY_SERVER_PORT__) {
+    return window.__INSY_SERVER_PORT__;
+  }
+  if (typeof window !== 'undefined' && window.__PIXELCODE_CONFIG__?.port) {
+    return window.__PIXELCODE_CONFIG__.port;
+  }
+  return 7777;
 }
 
 interface QuickEditInstance {
@@ -46,22 +103,25 @@ class InsyClient {
   private projectPath: string = '';
 
   constructor() {
-    // Get config from injected global or use defaults
-    const config = (window as any).__PIXELCODE_CONFIG__ || {};
+    // Get server config from injected globals
+    const port = getServerPort();
+    const config = window.__PIXELCODE_CONFIG__ || {};
     const host = config.host || 'localhost';
-    const port = config.port || 7777;
     const baseUrl = `http://${host}:${port}`;
 
     this.ws = new WSClient(baseUrl);
     this.selector = new ElementSelector();
 
-    // Get project path from config
-    this.projectPath = config.projectPath || '';
+    // Get project path from framework plugin or legacy config
+    this.projectPath = getProjectRoot();
 
     this.setupEventHandlers();
     this.setupKeyboardShortcut();
 
     console.log(`[Insy] Connecting to ${baseUrl}`);
+    if (this.projectPath) {
+      console.log(`[Insy] Project root: ${this.projectPath}`);
+    }
   }
 
   async init(): Promise<void> {
@@ -275,8 +335,8 @@ class InsyClient {
         state: instance.state,
         statusMessage: instance.statusMessage,
         diffs: instance.diffs,
-        onSubmit: (instanceId: string, prompt: string) => {
-          this.handlePromptSubmit(instanceId, prompt);
+        onSubmit: (instanceId: string, prompt: string, attachments?: FileAttachment[]) => {
+          this.handlePromptSubmit(instanceId, prompt, attachments);
         },
         onClose: () => {
           this.destroyQuickEditInstance(instance.id);
@@ -301,7 +361,11 @@ class InsyClient {
     );
   }
 
-  private handlePromptSubmit(instanceId: string, prompt: string): void {
+  private handlePromptSubmit(
+    instanceId: string,
+    prompt: string,
+    attachments?: FileAttachment[]
+  ): void {
     const instance = this.quickEditInstances.get(instanceId);
     if (!instance) return;
 
@@ -316,6 +380,7 @@ class InsyClient {
       sessionId: instanceId,
       conversationHistory: [],
       projectPath: this.projectPath,
+      attachments,
       // Element context
       element: instance.elementInfo,
       framework: instance.framework,

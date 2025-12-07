@@ -6,7 +6,8 @@ import type { ElementContext, ConversationMessage } from '@insy/shared';
  */
 export function buildContextOnlyPrompt(
   context: ElementContext,
-  conversationHistory?: ConversationMessage[]
+  conversationHistory?: ConversationMessage[],
+  projectPath?: string
 ): string {
   const componentName = getComponentName(context);
   const reactContext = context.frameworkContext as any;
@@ -47,6 +48,18 @@ ${conversationHistory.map(msg => {
 `;
   }
 
+  // Build project path section
+  const projectSection = projectPath 
+    ? `## Project Root
+IMPORTANT: Only edit files within this project directory:
+${projectPath}
+
+All file paths in your response MUST start with this exact path.
+Do NOT edit files in other projects or directories.
+
+`
+    : '';
+
   return `# Insy Edit Request
 
 =================================================================
@@ -66,7 +79,7 @@ If you edit files directly, the user loses control and visibility.
 
 You are helping edit a web application. The user visually selected an element in their browser and wants to modify it.
 
-## Selected Element
+${projectSection}## Selected Element
 - Tag: <${context.element.tagName}>
 ${context.element.id ? `- ID: #${context.element.id}` : ''}
 ${context.element.className ? `- Classes: ${context.element.className}` : ''}

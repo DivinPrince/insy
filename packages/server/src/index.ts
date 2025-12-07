@@ -1,9 +1,10 @@
 #!/usr/bin/env node
 
-import { InsyServer } from './server.js';
+import { InsyServer, startServer } from './server.js';
 
 // Export for programmatic use
-export { InsyServer } from './server.js';
+export { InsyServer, startServer } from './server.js';
+export type { ServerOptions } from './server.js';
 export type * from '@insy/shared';
 
 async function main() {

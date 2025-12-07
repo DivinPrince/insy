@@ -27,6 +27,39 @@ import { parseStructuredResponse, isStructuredResponse } from './prompts/parser.
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+/**
+ * Start the Insy server (for use by framework plugins)
+ * If server is already running on the port, silently registers the project and returns.
+ */
+export async function startServer(options: ServerOptions = {}): Promise<void> {
+  const port = options.port || 7777;
+  const host = options.host || 'localhost';
+
+  // Check if server is already running
+  try {
+    const response = await fetch(`http://${host}:${port}/health`);
+    const data = (await response.json()) as { status?: string };
+    if (data.status === 'ok') {
+      // Server already running, register project if provided
+      if (options.projectRoot) {
+        await fetch(`http://${host}:${port}/register`, {
+          method: 'POST',
+          body: JSON.stringify({ projectRoot: options.projectRoot }),
+          headers: { 'Content-Type': 'application/json' },
+        });
+        console.log(pc.dim(`[insy] Registered project: ${options.projectRoot}`));
+      }
+      return;
+    }
+  } catch {
+    // Server not running, continue to start
+  }
+
+  // Create and start server
+  const server = new InsyServer(options);
+  await server.start();
+}
+
 export interface ServerOptions {
   port?: number;
   host?: string;
@@ -87,6 +120,19 @@ export class InsyServer {
 
     // Health check
     this.app.get('/health', (c) => c.json({ status: 'ok' }));
+
+    // Register project (used by framework plugins)
+    this.app.post('/register', async (c) => {
+      try {
+        const { projectRoot } = await c.req.json();
+        if (projectRoot) {
+          console.log(pc.dim(`[Server] Project registered: ${projectRoot}`));
+        }
+        return c.json({ success: true });
+      } catch {
+        return c.json({ success: false, error: 'Invalid request' }, 400);
+      }
+    });
 
     // Get project config
     this.app.get('/config', async (c) => {
@@ -240,7 +286,7 @@ export class InsyServer {
       // Stage 2: Build prompt with full context
       this.sendStatus(clientId, payload.instanceId, 'ai_processing', 'Building prompt...', 30);
 
-      const prompt = buildContextOnlyPrompt(context, payload.conversationHistory);
+      const prompt = buildContextOnlyPrompt(context, payload.conversationHistory, projectPath);
 
       // Log conversation history if present
       if (payload.conversationHistory && payload.conversationHistory.length > 0) {
@@ -270,12 +316,16 @@ export class InsyServer {
       // Use sessionId from payload (unique per chat) or fallback to config
       const sessionId = payload.sessionId || config.opencode?.session || 'insy-default';
       console.log(`[Server] Using session: ${sessionId}`);
+      if (payload.attachments?.length) {
+        console.log(`[Server] Including ${payload.attachments.length} image attachment(s)`);
+      }
 
       const cliResponse = await this.currentAdapter.run(prompt, {
         session: sessionId,
         model: config.opencode?.model,
         continueSession: config.opencode?.continueSession,
         cwd: projectPath,
+        attachments: payload.attachments,
       });
 
       // Log full AI response

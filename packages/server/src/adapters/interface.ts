@@ -8,6 +8,14 @@ export interface ModelInfo {
   provider?: string;
 }
 
+// File attachment for images
+export interface FileAttachment {
+  type: 'image';
+  mime: string; // e.g., 'image/png', 'image/jpeg', 'image/gif', 'image/webp'
+  filename?: string;
+  url: string; // base64 data URL
+}
+
 export interface CLIToolAdapter {
   name: string;
 
@@ -31,6 +39,7 @@ export interface RunOptions {
   file?: string[]; // Files to attach to the request
   cwd?: string; // Working directory
   continueSession?: boolean; // Continue from last message in session
+  attachments?: FileAttachment[]; // Image attachments
 }
 
 export interface CLIToolConfig {
