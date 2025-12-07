@@ -174,8 +174,6 @@ export class OpenCodeAdapter implements CLIToolAdapter {
       // Handle both response styles
       const responseData = (response as any).data || response;
 
-      console.log(responseData);
-
       // Extract text from response parts
       let fullText = '';
       const parts = responseData?.parts || [];
