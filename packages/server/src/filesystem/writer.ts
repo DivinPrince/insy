@@ -1,5 +1,6 @@
 import { readFile, writeFile, mkdir, unlink } from 'fs/promises';
 import path from 'path';
+import { createHash } from 'crypto';
 import type { DiffResult } from '@insy/shared';
 
 interface ChangeRecord {
@@ -18,12 +19,49 @@ export class FileWriter {
     this.backupDir = path.join(projectRoot, '.insy', 'backups');
   }
 
+  /**
+   * Calculate SHA-256 hash of content for conflict detection
+   */
+  private calculateHash(content: string): string {
+    return createHash('sha256').update(content, 'utf-8').digest('hex');
+  }
+
   async applyDiff(
     diff: DiffResult
-  ): Promise<{ success: boolean; backupPath?: string; error?: string }> {
+  ): Promise<{
+    success: boolean;
+    backupPath?: string;
+    error?: string;
+    conflict?: {
+      expectedHash: string;
+      actualHash: string;
+    };
+  }> {
     try {
       // Read current content
       const currentContent = await readFile(diff.file, 'utf-8');
+
+      // Conflict detection: If originalContentHash is provided, verify current content matches
+      if (diff.originalContentHash) {
+        const currentHash = this.calculateHash(currentContent);
+
+        if (currentHash !== diff.originalContentHash) {
+          console.warn(
+            `[FileWriter] CONFLICT DETECTED for ${diff.file}: ` +
+            `expected hash ${diff.originalContentHash.substring(0, 8)}..., ` +
+            `but current file has hash ${currentHash.substring(0, 8)}...`
+          );
+
+          return {
+            success: false,
+            error: 'File has been modified since diff was generated',
+            conflict: {
+              expectedHash: diff.originalContentHash,
+              actualHash: currentHash,
+            },
+          };
+        }
+      }
 
       // Create backup
       const backupPath = await this.createBackup(diff.file, currentContent);

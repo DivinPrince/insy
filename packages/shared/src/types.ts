@@ -143,6 +143,7 @@ export interface DiffResult {
   modifiedCode: string;
   unifiedDiff: string;
   hunks: DiffHunk[];
+  originalContentHash?: string; // SHA-256 hash of original content for conflict detection
 }
 
 // ============================================================================
@@ -265,6 +266,12 @@ export interface ErrorPayload {
   code: string;
   message: string;
   details?: unknown;
+  conflict?: {
+    diffId: string;
+    file: string;
+    expectedHash: string;
+    actualHash: string;
+  };
 }
 
 // ============================================================================

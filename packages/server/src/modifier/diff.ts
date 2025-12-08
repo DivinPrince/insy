@@ -1,6 +1,7 @@
 import { createPatch, diffLines } from 'diff';
 import { readFile } from 'fs/promises';
 import { existsSync } from 'fs';
+import { createHash } from 'crypto';
 import type { DiffResult, DiffHunk, DiffChange, CodeChange } from '@insy/shared';
 
 export interface MultiDiffResult {
@@ -10,6 +11,13 @@ export interface MultiDiffResult {
 
 export class DiffGenerator {
   constructor(private projectRoot?: string) {}
+
+  /**
+   * Calculate SHA-256 hash of content for conflict detection
+   */
+  private calculateHash(content: string): string {
+    return createHash('sha256').update(content, 'utf-8').digest('hex');
+  }
 
   generate(
     filePath: string,
@@ -30,6 +38,9 @@ export class DiffGenerator {
     // Parse into structured hunks
     const hunks = this.parseHunks(unifiedDiff);
 
+    // Calculate content hash for conflict detection
+    const originalContentHash = this.calculateHash(originalCode);
+
     return {
       id,
       file: filePath,
@@ -37,6 +48,7 @@ export class DiffGenerator {
       modifiedCode,
       unifiedDiff,
       hunks,
+      originalContentHash,
     };
   }
 

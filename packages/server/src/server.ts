@@ -374,10 +374,35 @@ export class InsyServer {
 
           // Auto-apply the diff (creates backup automatically)
           const applyResult = await fileWriter.applyDiff(diff);
+
+          // Handle conflicts
+          if (!applyResult.success && applyResult.conflict) {
+            console.error(
+              `[Server] CONFLICT detected when auto-applying ${diff.file}: ${applyResult.error}`
+            );
+
+            // Send conflict error to client
+            this.wsServer.send(clientId, 'error', {
+              code: 'CONFLICT',
+              message: `Cannot apply changes to ${diff.file}: file was modified by another edit`,
+              conflict: {
+                diffId: diff.id,
+                file: diff.file,
+                expectedHash: applyResult.conflict.expectedHash,
+                actualHash: applyResult.conflict.actualHash,
+              },
+            });
+
+            // Don't add this diff to the payload - it failed
+            continue;
+          }
+
           if (!applyResult.success) {
             console.error(
               `[Server] Failed to auto-apply diff for ${diff.file}: ${applyResult.error}`
             );
+            // Don't add failed diffs to payload
+            continue;
           }
 
           // Find the corresponding action from changes
@@ -527,10 +552,24 @@ export class InsyServer {
         // DON'T delete from pendingDiffs - keep it for undo capability
         console.log(`[Server] Applied diff ${payload.diffId}, keeping in memory for undo`);
       } else {
-        this.wsServer.send(clientId, 'error', {
-          code: 'WRITE_ERROR',
-          message: result.error || 'Failed to write file',
-        });
+        // Check if it's a conflict
+        if (result.conflict) {
+          this.wsServer.send(clientId, 'error', {
+            code: 'CONFLICT',
+            message: `Cannot apply changes to ${diff.file}: file was modified by another edit`,
+            conflict: {
+              diffId: payload.diffId,
+              file: diff.file,
+              expectedHash: result.conflict.expectedHash,
+              actualHash: result.conflict.actualHash,
+            },
+          });
+        } else {
+          this.wsServer.send(clientId, 'error', {
+            code: 'WRITE_ERROR',
+            message: result.error || 'Failed to write file',
+          });
+        }
       }
     } catch (error) {
       console.error('[Server] Error applying diff:', error);
