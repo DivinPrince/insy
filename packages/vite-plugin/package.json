@@ -1,6 +1,6 @@
 {
   "name": "@insy/vite",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Vite plugin for Insy - AI-powered visual editing",
   "type": "module",
   "main": "./dist/index.js",
@@ -17,7 +17,6 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "clean": "rm -rf dist *.tsbuildinfo",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -38,5 +37,14 @@
     "visual-editing",
     "react"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DivinPrince/insy.git",
+    "directory": "packages/vite-plugin"
+  },
+  "homepage": "https://github.com/DivinPrince/insy#readme",
+  "bugs": {
+    "url": "https://github.com/DivinPrince/insy/issues"
+  }
 }

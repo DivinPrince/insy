@@ -1,6 +1,6 @@
 {
   "name": "@insy/server",
-  "version": "0.0.1",
+  "version": "0.0.4",
   "description": "Insy local server",
   "type": "module",
   "main": "./dist/index.js",
@@ -22,6 +22,7 @@
     "@babel/parser": "^7.23.6",
     "@babel/traverse": "^7.23.6",
     "@hono/node-server": "^1.19.6",
+    "@insy/client": "workspace:*",
     "@opencode-ai/sdk": "^1.0.134",
     "diff": "^5.1.0",
     "fast-glob": "^3.3.2",
@@ -37,5 +38,23 @@
     "@types/ws": "^8.5.13",
     "tsup": "^8.3.5",
     "typescript": "^5.3.3"
+  },
+  "keywords": [
+    "insy",
+    "ai",
+    "visual-editing",
+    "code-editing",
+    "developer-tools",
+    "opencode"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DivinPrince/insy.git",
+    "directory": "packages/server"
+  },
+  "homepage": "https://github.com/DivinPrince/insy#readme",
+  "bugs": {
+    "url": "https://github.com/DivinPrince/insy/issues"
   }
 }

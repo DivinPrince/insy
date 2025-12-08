@@ -11,7 +11,9 @@
       "import": "./dist/index.js"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
@@ -21,5 +23,21 @@
   "devDependencies": {
     "tsup": "^8.3.5",
     "typescript": "^5.3.3"
+  },
+  "keywords": [
+    "insy",
+    "shared",
+    "types",
+    "utilities"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DivinPrince/insy.git",
+    "directory": "packages/shared"
+  },
+  "homepage": "https://github.com/DivinPrince/insy#readme",
+  "bugs": {
+    "url": "https://github.com/DivinPrince/insy/issues"
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@insy/client",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Insy browser client",
   "type": "module",
   "main": "./dist/index.js",
@@ -22,5 +22,22 @@
     "@insy/shared": "workspace:*",
     "esbuild": "^0.19.11",
     "typescript": "^5.3.3"
+  },
+  "keywords": [
+    "insy",
+    "ai",
+    "visual-editing",
+    "browser",
+    "client"
+  ],
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DivinPrince/insy.git",
+    "directory": "packages/client"
+  },
+  "homepage": "https://github.com/DivinPrince/insy#readme",
+  "bugs": {
+    "url": "https://github.com/DivinPrince/insy/issues"
   }
 }

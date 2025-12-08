@@ -155,7 +155,18 @@ export class InsyServer {
     // Serve client script with injected config
     this.app.get('/client.js', async (c) => {
       try {
-        const clientPath = path.join(__dirname, '../../client/dist/client.js');
+        // Try to resolve @insy/client package (works in both monorepo and published)
+        let clientPath: string;
+        try {
+          // Modern Node.js (16.17+) - resolve the package
+          const clientPackagePath = await import.meta.resolve('@insy/client');
+          const clientPackageDir = path.dirname(fileURLToPath(clientPackagePath));
+          clientPath = path.join(clientPackageDir, 'dist/client.js');
+        } catch {
+          // Fallback to relative path (for development/monorepo)
+          clientPath = path.join(__dirname, '../../client/dist/client.js');
+        }
+
         const content = await readFile(clientPath, 'utf-8');
 
         // Load config and inject it into the client script

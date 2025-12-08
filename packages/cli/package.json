@@ -6,7 +6,9 @@
   "bin": {
     "insy": "./dist/index.js"
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
@@ -33,5 +35,14 @@
     "@types/node": "^20.10.6",
     "tsup": "^8.3.5",
     "typescript": "^5.3.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/DivinPrince/insy.git",
+    "directory": "packages/cli"
+  },
+  "homepage": "https://github.com/DivinPrince/insy#readme",
+  "bugs": {
+    "url": "https://github.com/DivinPrince/insy/issues"
   }
 }
