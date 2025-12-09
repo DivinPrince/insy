@@ -8,5 +8,5 @@ export default defineConfig({
   sourcemap: true,
   splitting: false,
   treeshake: true,
-  external: ['@insy/shared'],
+  external: ['@insy/shared', '@insy/client'],
 });

@@ -1,6 +1,6 @@
 {
   "name": "@insy/vite",
-  "version": "0.0.2",
+  "version": "0.0.5",
   "description": "Vite plugin for Insy - AI-powered visual editing",
   "type": "module",
   "main": "./dist/index.js",
@@ -20,7 +20,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@insy/server": "workspace:*"
+    "@insy/server": "workspace:*",
+    "@insy/client": "workspace:*"
   },
   "devDependencies": {
     "tsup": "^8.3.5",

@@ -87,12 +87,14 @@ export function insy(options: InsyPluginOptions = {}): VitePlugin {
     // Inject project root and server config into the HTML
     // This ensures the client.js script has access to the correct project context
     transformIndexHtml(html: string) {
+      const serverUrl = `http://${host}:${port}`;
       const configScript = `
 <script>
   // Insy project configuration (injected by @insy/vite plugin)
   window.__INSY_PROJECT_ROOT__ = ${JSON.stringify(projectRoot)};
   window.__INSY_SERVER_PORT__ = ${port};
-</script>`;
+</script>
+<script src="${serverUrl}/client.js"></script>`;
 
       // Inject at the start of <head> so it's available before client.js loads
       return html.replace('<head>', '<head>' + configScript);

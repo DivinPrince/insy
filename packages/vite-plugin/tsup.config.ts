@@ -8,5 +8,5 @@ export default defineConfig({
   sourcemap: true,
   splitting: false,
   treeshake: true,
-  external: ['vite', '@insy/server'],
+  external: ['vite', '@insy/server', '@insy/client'],
 });

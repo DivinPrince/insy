@@ -19,20 +19,24 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v4
 
-      - name: Setup Bun
-        uses: oven-sh/setup-bun@v1
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          bun-version: latest
+          node-version: 20
+          cache: 'pnpm'
 
       - name: Install Dependencies
-        run: bun install
+        run: pnpm install
 
       - name: Create Release Pull Request or Publish to npm
         id: changesets
         uses: changesets/action@v1
         with:
-          publish: bun run ci:publish
-          version: bun run ci:version
+          publish: pnpm run ci:publish
+          version: pnpm run ci:version
           commit: "chore: version packages"
           title: "chore: version packages"
         env:
