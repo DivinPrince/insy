@@ -9,132 +9,187 @@ Insy bridges the gap between live browser environments and AI coding agents. Sel
 
 ## Features
 
-- 🎯 **Visual Element Selection** - Click any element on your page
-- 🤖 **AI-Powered Editing** - Natural language code modifications
-- 🔧 **Framework Agnostic** - Works with React, Vue, HTML, and more
-- 📝 **Smart Diff Preview** - Review changes before applying
-- 💾 **Safe Backups** - Automatic backup before every change
-- ⚡ **Hot Module Reload** - Instant preview of changes
-- 🔍 **Intelligent Source Finding** - Automatically locates component files
+- **Visual Element Selection** - Click any element on your page
+- **AI-Powered Editing** - Natural language code modifications via OpenCode
+- **Framework Agnostic** - Works with React, Vue, Next.js, and vanilla HTML
+- **Smart Context Capture** - Automatically captures component context, props, and source hints
+- **Image Attachments** - Attach screenshots for visual context
+- **Hot Module Reload** - Instant preview of changes
 
 ## Quick Start
 
-### Installation
+### Option 1: Using Vite Plugin (Recommended for Vite projects)
 
 ```bash
-# Global installation
-npm install -g insy
+npm install @insy/vite --save-dev
+```
 
-# Or use npx (no install required)
+```typescript
+// vite.config.ts
+import { defineConfig } from 'vite';
+import react from '@vitejs/plugin-react';
+import { insy } from '@insy/vite';
+
+export default defineConfig({
+  plugins: [react(), insy()]
+});
+```
+
+### Option 2: Using Next.js Plugin
+
+```bash
+npm install @insy/next --save-dev
+```
+
+```javascript
+// next.config.js
+const { withInsy } = require('@insy/next');
+
+module.exports = withInsy()({
+  // your next config
+});
+```
+
+```tsx
+// app/layout.tsx
+import { InsyScript } from '@insy/next';
+
+export default function RootLayout({ children }) {
+  return (
+    <html>
+      <body>
+        {children}
+        <InsyScript />
+      </body>
+    </html>
+  );
+}
+```
+
+### Option 3: Manual Setup (Any Framework)
+
+```bash
+# Start the server
 npx insy
 ```
 
-### Usage
+Add the client script to your HTML:
 
-1. **Start the server** in your project directory:
-
-```bash
-npx insy
+```html
+<script src="https://unpkg.com/@insy/client@latest/dist/client.js"></script>
 ```
 
-2. **Add the script** to your app (shown in terminal output):
+Or from the local server:
 
 ```html
 <script src="http://localhost:7777/client.js"></script>
 ```
 
-3. **Use Insy**:
-   - Press `⌘+Shift+P` (Mac) or `Ctrl+Shift+P` (Windows/Linux)
-   - Click any element on your page
-   - Describe your change in natural language
-   - Review the diff and apply
+## Usage
 
-## Configuration
+1. **Activate Selection** - Press `Alt+Q` or click the Insy button
+2. **Select Element** - Click any element on the page
+3. **Describe Change** - Type your modification in natural language
+4. **AI Applies Changes** - OpenCode modifies your source code
 
-Create a `.insy.json` in your project root:
+## Packages
 
-```json
-{
-  "ai": {
-    "provider": "openai",
-    "model": "gpt-4-turbo",
-    "apiKey": "${OPENAI_API_KEY}"
-  },
-  "editor": {
-    "mode": "preview",
-    "autoApply": false
-  }
-}
-```
+| Package | Description |
+|---------|-------------|
+| [`insy`](./packages/cli) | CLI to start the Insy server |
+| [`@insy/client`](./packages/client) | Browser client for element selection and UI |
+| [`@insy/server`](./packages/server) | Local server with AI integration |
+| [`@insy/vite`](./packages/vite-plugin) | Vite plugin for seamless integration |
+| [`@insy/next`](./packages/next-plugin) | Next.js plugin with CDN client loading |
+| [`@insy/shared`](./packages/shared) | Shared TypeScript types |
 
-## Supported Frameworks
+## Requirements
 
-- ✅ React (with hooks, context, etc.)
-- ✅ Next.js (App Router & Pages Router)
-- ✅ Vue.js (2 & 3)
-- ✅ Vanilla HTML/CSS/JS
-- 🚧 Svelte (coming soon)
-- 🚧 Angular (coming soon)
-
-## Examples
-
-```bash
-# Try the examples
-cd examples/react-vite
-npm install
-npm run dev
-
-# In another terminal
-npx insy
-```
-
-## Documentation
-
-- [Getting Started](./docs/getting-started.md)
-- [Configuration](./docs/configuration.md)
-- [API Reference](./docs/api.md)
-- [Examples](./docs/examples.md)
+- **Node.js** >= 18.0.0
+- **OpenCode CLI** - Install from [opencode.ai](https://opencode.ai)
 
 ## How It Works
-
-1. **Element Selection** - Uses a React Grab-inspired overlay to capture element context
-2. **Framework Detection** - Automatically detects React, Vue, or HTML
-3. **Source Location** - Finds the source file using AST analysis and heuristics
-4. **AI Processing** - Sends element context + user prompt to AI (OpenAI, Anthropic, or OpenCode)
-5. **Code Modification** - Uses AST-based editing for precise, safe changes
-6. **Diff Preview** - Shows a unified diff for review
-7. **Safe Application** - Creates backup, applies changes, triggers HMR
-
-## Architecture
 
 ```
 ┌─────────────────────────────────────┐
 │   Browser (Your App)                │
 │   ├─ Element Selector               │
 │   ├─ Context Capture                │
-│   └─ WebSocket Client                │
+│   └─ WebSocket Client               │
 └────────────┬────────────────────────┘
              │ WebSocket
              ▼
 ┌─────────────────────────────────────┐
-│   Local Server (localhost:7777)     │
-│   ├─ AI Integration                 │
-│   ├─ Source File Finder             │
-│   ├─ AST Parser & Modifier          │
-│   └─ File System Writer             │
+│   Insy Server (localhost:7777)      │
+│   ├─ Prompt Builder                 │
+│   ├─ OpenCode Integration           │
+│   └─ Project Registration           │
 └─────────────────────────────────────┘
+             │
+             ▼
+┌─────────────────────────────────────┐
+│   OpenCode CLI                      │
+│   └─ AI Code Modification           │
+└─────────────────────────────────────┘
+```
+
+1. **Element Selection** - Uses visual overlay to capture element context
+2. **Framework Detection** - Automatically detects React, Vue, or HTML
+3. **Context Capture** - Extracts component info, props, state, fiber path
+4. **Prompt Building** - Constructs detailed prompt with element context
+5. **AI Processing** - OpenCode processes the prompt and modifies files
+6. **Hot Reload** - Changes appear instantly via HMR
+
+## Supported Frameworks
+
+- React (with hooks, context, fiber info)
+- Next.js (App Router & Pages Router)
+- Vue.js (2 & 3)
+- Vanilla HTML/CSS/JS
+- Any Vite-compatible framework
+
+## Development
+
+```bash
+# Clone the repo
+git clone https://github.com/DivinPrince/insy.git
+cd insy
+
+# Install dependencies
+pnpm install
+
+# Build all packages
+pnpm build
+
+# Run in development mode
+pnpm dev
+```
+
+### Project Structure
+
+```
+insy/
+├── packages/
+│   ├── cli/          # CLI package (insy command)
+│   ├── client/       # Browser client
+│   ├── server/       # Local server
+│   ├── vite-plugin/  # Vite integration
+│   ├── next-plugin/  # Next.js integration
+│   └── shared/       # Shared types
+├── examples/
+│   └── vite-example/ # Example Vite + React app
+└── turbo.json        # Turborepo config
 ```
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](./CONTRIBUTING.md) for details.
+We welcome contributions! Please see the individual package READMEs for development instructions.
 
 ## License
 
-MIT © Insy Team
+MIT - see [LICENSE](./LICENSE) for details.
 
 ## Acknowledgments
 
-- Inspired by [React Grab](https://github.com/aidenybai/react-grab)
-- Built with [OpenCode SDK](https://opencode.ai/)
-- Powered by OpenAI, Anthropic, and other AI providers
+- [OpenCode](https://opencode.ai/) - AI coding agent
+- [bippy](https://github.com/aidenybai/bippy) - React fiber inspection

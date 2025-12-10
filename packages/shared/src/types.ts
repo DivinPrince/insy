@@ -103,47 +103,6 @@ export interface CodeModification {
   explanation?: string;
 }
 
-// ============================================================================
-// Structured Code Changes (XML-based AI response format)
-// ============================================================================
-
-export type CodeChangeAction = 'create' | 'modify' | 'delete';
-
-export interface CodeChange {
-  filePath: string;
-  action: CodeChangeAction;
-  language: string;
-  content: string; // Full file content (empty for delete)
-  description?: string; // Optional description of this specific change
-}
-
-export interface StructuredCodeResponse {
-  changes: CodeChange[];
-  summary?: string; // Overall summary of all changes
-}
-
-export interface DiffChange {
-  type: 'add' | 'remove' | 'context';
-  line: string;
-  lineNumber: number;
-}
-
-export interface DiffHunk {
-  oldStart: number;
-  oldLines: number;
-  newStart: number;
-  newLines: number;
-  changes: DiffChange[];
-}
-
-export interface DiffResult {
-  id: string;
-  file: string;
-  originalCode: string;
-  modifiedCode: string;
-  unifiedDiff: string;
-  hunks: DiffHunk[];
-}
 
 // ============================================================================
 // File Attachments (Images)
@@ -161,17 +120,13 @@ export interface FileAttachment {
 // ============================================================================
 
 // Client → Server message types
-export type WSClientMessageType = 'prompt/submit' | 'diff/approve' | 'diff/undo' | 'diff/toggle';
+export type WSClientMessageType = 'prompt/submit';
 
 // Server → Client message types
 export type WSServerMessageType =
   | 'connected'
   | 'status'
-  | 'diff'
-  | 'applied'
-  | 'undone'
-  | 'toggled'
-  | 'accepted'
+  | 'done'
   | 'error';
 
 // Unified WebSocket message format
@@ -221,44 +176,17 @@ export interface PromptSubmitPayload {
   attachments?: FileAttachment[]; // Image attachments
 }
 
-export interface DiffApprovalPayload {
-  diffId: string;
-  action: 'apply' | 'reject' | 'accept'; // accept = keep changes, delete backup
-}
+
 
 // Server → Client Messages
 
-export type StatusStage = 'analyzing' | 'ai_processing' | 'generating_diff' | 'complete' | 'error';
+export type StatusStage = 'analyzing' | 'ai_processing' | 'success' | 'error';
 
 export interface StatusUpdatePayload {
   stage: StatusStage;
   message: string;
   progress?: number;
   instanceId?: string; // Instance-specific update
-}
-
-export interface MultiDiffGeneratedPayload {
-  instanceId: string; // QuickEdit instance ID
-  summary?: string;
-  autoApplied?: boolean; // If true, changes were auto-applied to files
-  diffs: Array<{
-    diffId: string;
-    file: string;
-    action: CodeChangeAction;
-    diff: string;
-    preview: {
-      before: string;
-      after: string;
-    };
-  }>;
-}
-
-export interface DiffAppliedPayload {
-  diffId: string;
-  file: string;
-  success: boolean;
-  backupPath?: string;
-  instanceId?: string; // QuickEdit instance ID
 }
 
 export interface ErrorPayload {
@@ -280,7 +208,6 @@ export interface AIConfig {
 export interface EditorConfig {
   mode: 'preview' | 'auto-apply';
   autoApply: boolean;
-  backupEnabled: boolean;
 }
 
 export interface UIConfig {
@@ -320,12 +247,7 @@ export interface InsyConfig {
 // Widget & UI State
 // ============================================================================
 
-export interface RecentEdit {
-  id: string;
-  file: string;
-  timestamp: number;
-  description: string;
-}
+
 
 export interface WidgetPreferences {
   position: { x: number; y: number };

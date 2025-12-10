@@ -4,6 +4,9 @@
   "description": "Insy browser client",
   "type": "module",
   "main": "./dist/index.js",
+  "browser": "./dist/client.js",
+  "unpkg": "./dist/client.js",
+  "jsdelivr": "./dist/client.js",
   "files": [
     "dist"
   ],

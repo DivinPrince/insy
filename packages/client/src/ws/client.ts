@@ -3,11 +3,6 @@ import type { WebSocketMessage, PromptSubmitPayload, DiffApprovalPayload } from 
 export type WSEventType =
   | 'connected'
   | 'status'
-  | 'diff'
-  | 'applied'
-  | 'undone'
-  | 'toggled'
-  | 'accepted'
   | 'error';
 
 export type WSEventHandler<T = unknown> = (data: T) => void;
@@ -215,36 +210,6 @@ export class WSClient {
     this.sendMessage({
       type: 'prompt/submit',
       payload,
-    });
-  }
-
-  /**
-   * Approve or reject a diff
-   */
-  approveDiff(payload: DiffApprovalPayload): void {
-    this.sendMessage({
-      type: 'diff/approve',
-      payload,
-    });
-  }
-
-  /**
-   * Undo a diff
-   */
-  undoDiff(diffId: string): void {
-    this.sendMessage({
-      type: 'diff/undo',
-      payload: { diffId },
-    });
-  }
-
-  /**
-   * Toggle a diff preview
-   */
-  toggleDiff(diffId: string): void {
-    this.sendMessage({
-      type: 'diff/toggle',
-      payload: { diffId },
     });
   }
 

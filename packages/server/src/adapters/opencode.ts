@@ -47,11 +47,8 @@ export class OpenCodeAdapter implements CLIToolAdapter {
       // Try connecting to existing server first
       const testClient = createOpencodeClient({ baseUrl });
       await testClient.config.get();
-      console.log(`[OpenCode] Connected to existing server at ${baseUrl}`);
       this.serverReady = true;
     } catch {
-      // No server running, start one
-      console.log('[OpenCode] No server found, starting new instance...');
       this.serverInstance = await createOpencode({
         port: OPENCODE_PORT,
       });
@@ -71,7 +68,6 @@ export class OpenCodeAdapter implements CLIToolAdapter {
 
     let client = this.clientCache.get(cacheKey);
     if (!client) {
-      console.log(`[OpenCode] Creating client for directory: ${directory || '(default)'}`);
       client = createOpencodeClient({ 
         baseUrl,
         directory: directory,

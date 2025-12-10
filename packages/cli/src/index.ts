@@ -51,45 +51,4 @@ program
     }
   });
 
-program
-  .command('init')
-  .description('Initialize Insy in your project')
-  .action(async () => {
-    console.log();
-    console.log(pc.bold(pc.cyan('🎨 Initialize Insy')));
-    console.log();
-    
-    const config = {
-      version: '1.0',
-      tool: 'opencode',
-      server: {
-        port: 7777,
-        host: 'localhost',
-      },
-      opencode: {
-        session: 'Insy',
-        continueSession: true,
-      },
-      ui: {
-        keybind: 'cmd+shift+p',
-        theme: 'dark',
-      },
-      search: {
-        include: ['src/**/*', 'app/**/*', 'pages/**/*', 'components/**/*'],
-        exclude: ['**/node_modules/**', '**/dist/**', '**/build/**', '**/.next/**'],
-      },
-    };
-
-    const { writeFile } = await import('fs/promises');
-    await writeFile('.insy.json', JSON.stringify(config, null, 2));
-
-    console.log(pc.green('✓ Created .insy.json'));
-    console.log();
-    console.log('Next steps:');
-    console.log(pc.cyan('  1. Run: npx insy'));
-    console.log(pc.cyan('  2. Add the script tag to your app (shown in output)'));
-    console.log(pc.cyan('  3. Press ⌘+Shift+E in your browser to activate'));
-    console.log();
-  });
-
 program.parse();

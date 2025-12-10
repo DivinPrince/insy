@@ -4,8 +4,15 @@
   "private": true,
   "packageManager": "pnpm@9.15.0",
   "description": "AI-powered visual code editing for any frontend framework",
-  "keywords": ["ai", "code-editing", "react", "vue", "html", "developer-tools"],
-  "author": "Insy Team",
+  "keywords": [
+    "ai",
+    "code-editing",
+    "react",
+    "vue",
+    "html",
+    "developer-tools"
+  ],
+  "author": "Irasubiza Divin Prince",
   "license": "MIT",
   "workspaces": [
     "packages/*",

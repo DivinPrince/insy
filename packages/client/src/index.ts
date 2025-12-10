@@ -5,14 +5,11 @@ import { detectFramework, captureFrameworkContext } from './frameworks/detector'
 import { extractSourceHints } from './core/capture';
 import { WidgetButton } from './ui/widget-button';
 import { QuickEdit } from './ui/quick-edit';
-import type { DiffPreview } from './ui/quick-edit';
 import type {
   ElementInfo,
   Framework,
   FrameworkContext,
   StatusUpdatePayload,
-  MultiDiffGeneratedPayload,
-  DiffAppliedPayload,
   FileAttachment,
 } from '@insy/shared';
 
@@ -21,7 +18,7 @@ declare global {
   interface Window {
     __INSY_PROJECT_ROOT__?: string;
     __INSY_SERVER_PORT__?: number;
-    __PIXELCODE_CONFIG__?: {
+    __INSY_CONFIG__?: {
       projectPath?: string;
       host?: string;
       port?: number;
@@ -40,7 +37,7 @@ function generateId(): string {
 /**
  * Get project root from injected globals
  * Priority: 1. __INSY_PROJECT_ROOT__ (from framework plugins)
- *           2. __PIXELCODE_CONFIG__.projectPath (from server-injected client.js)
+ *           2. __INSY_CONFIG__.projectPath (from server-injected client.js)
  */
 function getProjectRoot(): string {
   // Try framework plugin global first
@@ -53,9 +50,9 @@ function getProjectRoot(): string {
     return window.__INSY_PROJECT_ROOT__;
   }
 
-  // Fallback to legacy config
-  if (typeof window !== 'undefined' && window.__PIXELCODE_CONFIG__?.projectPath) {
-    return window.__PIXELCODE_CONFIG__.projectPath;
+  // Fallback to server-injected config
+  if (typeof window !== 'undefined' && window.__INSY_CONFIG__?.projectPath) {
+    return window.__INSY_CONFIG__.projectPath;
   }
 
   return '';
@@ -71,8 +68,8 @@ function getServerPort(): number {
   if (typeof window !== 'undefined' && window.__INSY_SERVER_PORT__) {
     return window.__INSY_SERVER_PORT__;
   }
-  if (typeof window !== 'undefined' && window.__PIXELCODE_CONFIG__?.port) {
-    return window.__PIXELCODE_CONFIG__.port;
+  if (typeof window !== 'undefined' && window.__INSY_CONFIG__?.port) {
+    return window.__INSY_CONFIG__.port;
   }
   return 7777;
 }
@@ -86,8 +83,7 @@ interface QuickEditInstance {
   sourceHints: ReturnType<typeof extractSourceHints>;
   container: HTMLElement;
   shadowRoot: ShadowRoot;
-  state: 'prompt' | 'loading' | 'changes';
-  diffs?: DiffPreview[];
+  state: 'prompt' | 'loading' | 'done';
   statusMessage?: string;
 }
 
@@ -105,7 +101,7 @@ class InsyClient {
   constructor() {
     // Get server config from injected globals
     const port = getServerPort();
-    const config = window.__PIXELCODE_CONFIG__ || {};
+    const config = window.__INSY_CONFIG__ || {};
     const host = config.host || 'localhost';
     const baseUrl = `http://${host}:${port}`;
 
@@ -152,22 +148,6 @@ class InsyClient {
     this.ws.on<StatusUpdatePayload>('status', (payload) => {
       this.handleStatusUpdate(payload);
     });
-
-    // Diff generated (multi-file)
-    this.ws.on<MultiDiffGeneratedPayload>('diff', (payload) => {
-      this.handleMultiDiffGenerated(payload);
-    });
-
-    // Diff applied
-    this.ws.on<DiffAppliedPayload>('applied', (payload) => {
-      this.handleDiffApplied(payload);
-    });
-
-    // Diff undone
-    this.ws.on<{ diffId: string; success: boolean }>('undone', (payload) => {
-      this.handleDiffUndone(payload);
-    });
-
     // Error handling
     this.ws.on<{ code: string; message: string }>('error', (payload) => {
       console.error(`[Insy] Error: ${payload.code} - ${payload.message}`);
@@ -191,48 +171,16 @@ class InsyClient {
     if (!instance) return;
 
     instance.statusMessage = statusMessage;
-    if (stage === 'ai_processing' || stage === 'generating_diff') {
+    if (stage === 'ai_processing') {
       instance.state = 'loading';
     }
-
-    this.renderQuickEdit(instance);
-  }
-
-  private handleMultiDiffGenerated(payload: MultiDiffGeneratedPayload): void {
-    const { instanceId, diffs } = payload;
-    if (!instanceId) return;
-
-    const instance = this.quickEditInstances.get(instanceId);
-    if (!instance) return;
-
-    const diffPreviews: DiffPreview[] = diffs.map((d) => ({
-      file: d.file,
-      before: d.preview.before,
-      after: d.preview.after,
-      diffId: d.diffId,
-      action: d.action,
-    }));
-
-    instance.state = 'changes';
-    instance.diffs = diffPreviews;
-    this.renderQuickEdit(instance);
-  }
-
-  private handleDiffApplied(payload: DiffAppliedPayload): void {
-    const { success, file } = payload;
-    if (success) {
-      console.log(`✅ Applied changes to ${file}`);
-    } else {
-      console.error(`❌ Failed to apply changes to ${file}`);
+    if (stage === 'success') {
+      instance.state = 'done';
+      console.log('[Insy] Done!');
+      this.destroyQuickEditInstance(instanceId);
+      return;
     }
-  }
-
-  private handleDiffUndone(payload: { diffId: string; success: boolean }): void {
-    if (payload.success) {
-      console.log(`↩️ Undid changes for diff ${payload.diffId}`);
-    } else {
-      console.error(`❌ Failed to undo changes for diff ${payload.diffId}`);
-    }
+    this.renderQuickEdit(instance);
   }
 
   private toggleQuickEdit(): void {
@@ -309,7 +257,6 @@ class InsyClient {
       container: host,
       shadowRoot,
       state: 'prompt',
-      diffs: undefined,
       statusMessage: undefined,
     };
 
@@ -334,7 +281,6 @@ class InsyClient {
         frameworkContext: instance.frameworkContext,
         state: instance.state,
         statusMessage: instance.statusMessage,
-        diffs: instance.diffs,
         onSubmit: (instanceId: string, prompt: string, attachments?: FileAttachment[]) => {
           this.handlePromptSubmit(instanceId, prompt, attachments);
         },
@@ -343,19 +289,7 @@ class InsyClient {
         },
         onCompact: () => {
           // Handled by component
-        },
-        onAcceptChanges: (instanceId: string, diffIds: string[]) => {
-          this.handleAcceptChanges(instanceId, diffIds);
-        },
-        onRejectChanges: (instanceId: string) => {
-          this.handleRejectChanges(instanceId);
-        },
-        onTogglePreview: (instanceId: string, diffId: string) => {
-          this.handleTogglePreview(instanceId, diffId);
-        },
-        onToggleAllPreviews: (instanceId: string, diffIds: string[]) => {
-          this.handleToggleAllPreviews(instanceId, diffIds);
-        },
+        }
       }),
       container
     );
@@ -386,56 +320,6 @@ class InsyClient {
       framework: instance.framework,
       frameworkContext: instance.frameworkContext,
       sourceHints: instance.sourceHints,
-    });
-  }
-
-  private handleAcceptChanges(instanceId: string, diffIds: string[]): void {
-    const instance = this.quickEditInstances.get(instanceId);
-    if (!instance || !instance.diffs) return;
-
-    // Send accept for each diff ID via WebSocket
-    diffIds.forEach((diffId) => {
-      this.ws.approveDiff({
-        diffId: diffId,
-        action: 'accept',
-      });
-    });
-
-    console.log('✅ Accepted changes');
-    this.destroyQuickEditInstance(instanceId);
-  }
-
-  private handleRejectChanges(instanceId: string): void {
-    const instance = this.quickEditInstances.get(instanceId);
-    if (!instance || !instance.diffs) return;
-
-    // Send rejection for each diff ID via WebSocket
-    instance.diffs.forEach((diff) => {
-      this.ws.approveDiff({
-        diffId: diff.diffId,
-        action: 'reject',
-      });
-    });
-
-    this.destroyQuickEditInstance(instanceId);
-  }
-
-  private handleTogglePreview(instanceId: string, diffId: string): void {
-    const instance = this.quickEditInstances.get(instanceId);
-    if (!instance) return;
-
-    // Call toggle via WebSocket
-    this.ws.toggleDiff(diffId);
-  }
-
-  private handleToggleAllPreviews(instanceId: string, diffIds: string[]): void {
-    const instance = this.quickEditInstances.get(instanceId);
-    if (!instance) return;
-
-    // Toggle all diffs
-    console.log(`[Insy] Toggling all ${diffIds.length} previews...`);
-    diffIds.forEach((diffId) => {
-      this.ws.toggleDiff(diffId);
     });
   }
 

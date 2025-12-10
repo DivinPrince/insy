@@ -31,6 +31,8 @@ export function getInsyConfig() {
 /**
  * Next.js plugin for Insy - AI-powered visual editing
  *
+ * The client is loaded from unpkg CDN (https://unpkg.com/@insy/client).
+ *
  * @example
  * ```js
  * // next.config.js
@@ -102,7 +104,7 @@ export function withInsy(options: InsyPluginOptions = {}) {
 }
 
 /**
- * React component that injects the Insy client script with proper project configuration.
+ * React component that loads the Insy client from unpkg CDN with proper project configuration.
  * Only renders in development mode.
  *
  * @example
@@ -134,9 +136,9 @@ export function InsyScript(): any {
     host: 'localhost',
   };
 
-  const { projectRoot, port, host } = config;
+  const { projectRoot, port } = config;
 
-  // Use dangerouslySetInnerHTML to inject config before client.js loads
+  // Inject config before loading the client script from CDN
   const configScript = `
     window.__INSY_PROJECT_ROOT__ = ${JSON.stringify(projectRoot)};
     window.__INSY_SERVER_PORT__ = ${port};
@@ -151,8 +153,9 @@ export function InsyScript(): any {
     React.createElement('script', {
       dangerouslySetInnerHTML: { __html: configScript },
     }),
+    // Load client from unpkg CDN
     React.createElement('script', {
-      src: `http://${host}:${port}/client.js`,
+      src: 'https://unpkg.com/@insy/client@latest/dist/client.js',
     })
   );
 }

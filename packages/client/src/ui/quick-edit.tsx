@@ -3,7 +3,6 @@ import { useState, useRef, useEffect } from 'preact/hooks';
 import type { FunctionComponent } from 'preact';
 import type {
   ElementInfo,
-  CodeChangeAction,
   FrameworkContext,
   ReactContext,
   FileAttachment,
@@ -24,15 +23,7 @@ function fileToDataUrl(file: File): Promise<string> {
   });
 }
 
-export type QuickEditState = 'prompt' | 'loading' | 'changes';
-
-export interface DiffPreview {
-  file: string;
-  before: string;
-  after: string;
-  diffId: string;
-  action?: CodeChangeAction;
-}
+export type QuickEditState = 'prompt' | 'loading' | 'done';
 
 export interface QuickEditProps {
   // Instance management
@@ -49,13 +40,6 @@ export interface QuickEditProps {
   onSubmit: (instanceId: string, prompt: string, attachments?: FileAttachment[]) => void;
   onClose: () => void;
   onCompact: () => void;
-
-  // Changes
-  diffs?: DiffPreview[];
-  onAcceptChanges?: (instanceId: string, diffIds: string[]) => void;
-  onRejectChanges?: (instanceId: string) => void;
-  onTogglePreview?: (instanceId: string, diffId: string) => void;
-  onToggleAllPreviews?: (instanceId: string, diffIds: string[]) => void;
 
   // Compact mode
   isCompact?: boolean;
@@ -77,22 +61,6 @@ const CheckIcon = () => (
   </svg>
 );
 
-const XIcon = () => (
-  <svg
-    width="14"
-    height="14"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2.5"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <line x1="18" y1="6" x2="6" y2="18" />
-    <line x1="6" y1="6" x2="18" y2="18" />
-  </svg>
-);
-
 const SendIcon = () => (
   <svg
     width="14"
@@ -105,39 +73,6 @@ const SendIcon = () => (
     strokeLinejoin="round"
   >
     <path d="M5 12h14M12 5l7 7-7 7" />
-  </svg>
-);
-
-const EyeIcon = () => (
-  <svg
-    width="14"
-    height="14"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-    <circle cx="12" cy="12" r="3" />
-  </svg>
-);
-
-const DiffIcon = () => (
-  <svg
-    width="14"
-    height="14"
-    viewBox="0 0 24 24"
-    fill="none"
-    stroke="currentColor"
-    strokeWidth="2"
-    strokeLinecap="round"
-    strokeLinejoin="round"
-  >
-    <path d="M4 6h7M4 12h7M4 18h7" />
-    <path d="M14 6h6M14 12h6M14 18h6" />
-    <path d="M12 3v18" />
   </svg>
 );
 
@@ -225,57 +160,29 @@ export const QuickEdit: FunctionComponent<QuickEditProps> = ({
   elementInfo,
   frameworkContext,
   state,
-  statusMessage,
   onSubmit,
   onClose,
-  onCompact,
-  diffs = [],
-  onAcceptChanges,
-  onRejectChanges,
-  onTogglePreview,
-  onToggleAllPreviews,
   isCompact = false,
 }) => {
   const [inputValue, setInputValue] = useState('');
   const [attachments, setAttachments] = useState<FileAttachment[]>([]);
-  const [showDiffDetails, setShowDiffDetails] = useState(false);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  // Track which diffs have preview enabled (changes visible)
-  const [previewEnabled, setPreviewEnabled] = useState<Record<string, boolean>>(() => {
-    // Default: all diffs start with preview ON (changes are auto-applied)
-    const initial: Record<string, boolean> = {};
-    diffs.forEach((d) => {
-      initial[d.diffId] = true;
-    });
-    return initial;
-  });
-
-  // Check if all previews are enabled (for toggle all button state)
-  const allPreviewsEnabled = diffs.length > 0 && diffs.every((d) => previewEnabled[d.diffId]);
 
   // Extract component info if React
   const reactContext = frameworkContext as ReactContext | null;
   const componentName = reactContext?.componentName;
   const tagName = elementInfo.tagName.toLowerCase();
 
-  // Get file info for display
-  const fileName = diffs.length > 0 
-    ? diffs[0].file.split(/[/\\]/).pop() 
-    : undefined;
-  
   // Display name logic:
-  // - If we have diffs, show the file name
   // - If component name exists, show "ComponentName.tsx → tagName" for elements inside
   // - Otherwise just show the tag name
-  const displayName = fileName 
-    ? fileName 
-    : componentName 
+  const displayName = componentName 
       ? `${componentName}.tsx` 
       : tagName;
   
   // Show element path if inside a component (e.g., "App.tsx → div")
-  const showElementPath = !fileName && componentName && tagName !== componentName.toLowerCase();
+  const showElementPath = componentName && tagName !== componentName.toLowerCase();
 
   // Calculate position relative to target element
   const [position, setPosition] = useState({ x: 0, y: 0 });
@@ -483,114 +390,12 @@ export const QuickEdit: FunctionComponent<QuickEditProps> = ({
   }
 
   // Changes State - Compact bubble with action icons
-  if (state === 'changes' && diffs.length > 0) {
+  if (state === 'done') {
     return (
       <div style={{ ...bubbleStyle, padding: '10px 14px' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-          {/* Eye - Toggle preview */}
-          <button
-            className="qe-action-btn qe-btn-eye"
-            onClick={() => {
-              const diffIds = diffs.map((d) => d.diffId);
-              const newState = !allPreviewsEnabled;
-              setPreviewEnabled((prev) => {
-                const updated: Record<string, boolean> = {};
-                diffs.forEach((d) => {
-                  updated[d.diffId] = newState;
-                });
-                return { ...prev, ...updated };
-              });
-              onToggleAllPreviews?.(instanceId, diffIds);
-            }}
-            style={{
-              color: allPreviewsEnabled ? '#3b82f6' : '#60a5fa',
-            }}
-            title={allPreviewsEnabled ? 'Hide preview' : 'Show preview'}
-          >
-            <EyeIcon />
-          </button>
-
-          {/* X - Reject changes */}
-          <button
-            className="qe-action-btn qe-btn-reject"
-            onClick={() => onRejectChanges?.(instanceId)}
-            title="Reject changes"
-          >
-            <XIcon />
-          </button>
-
-          {/* Check - Accept changes */}
-          <button
-            className="qe-action-btn qe-btn-accept"
-            onClick={() => {
-              const diffIds = diffs.map((d) => d.diffId);
-              onAcceptChanges?.(instanceId, diffIds);
-            }}
-            title="Accept changes"
-          >
-            <CheckIcon />
-          </button>
-
-          {/* Diff - Show diff details */}
-          <button
-            className="qe-action-btn qe-btn-diff"
-            onClick={() => setShowDiffDetails(!showDiffDetails)}
-            style={{
-              color: showDiffDetails ? '#7c3aed' : '#a78bfa',
-            }}
-            title="Show diff"
-          >
-            <DiffIcon />
-          </button>
+         Done!
         </div>
-
-        {/* Diff details dropdown */}
-        {showDiffDetails && (
-          <div style={{ 
-            marginTop: '10px', 
-            paddingTop: '10px', 
-            borderTop: '1px solid #eee',
-            maxHeight: '200px',
-            overflow: 'auto',
-          }}>
-            {diffs.map((diff) => {
-              const beforeLines = diff.before ? diff.before.split('\n').length : 0;
-              const afterLines = diff.after ? diff.after.split('\n').length : 0;
-              const additions = diff.action === 'create' ? afterLines : Math.max(0, afterLines - beforeLines);
-              const deletions = diff.action === 'delete' ? beforeLines : Math.max(0, beforeLines - afterLines);
-
-              return (
-                <div
-                  key={diff.diffId}
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '6px 0',
-                    fontSize: '12px',
-                  }}
-                >
-                  <span style={{ color: '#555', fontFamily: 'SF Mono, Monaco, monospace' }}>
-                    {diff.file.split(/[/\\]/).pop()}
-                  </span>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    {additions > 0 && (
-                      <span style={{ color: '#16a34a', fontFamily: 'SF Mono, Monaco, monospace' }}>
-                        +{additions}
-                      </span>
-                    )}
-                    {deletions > 0 && (
-                      <span style={{ color: '#dc2626', fontFamily: 'SF Mono, Monaco, monospace' }}>
-                        -{deletions}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-
         <style>{`
           .qe-action-btn {
             background: transparent;

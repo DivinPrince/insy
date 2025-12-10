@@ -11,11 +11,7 @@ export interface WSClientConnection {
 export type WSEventType =
   | 'connected'
   | 'status'
-  | 'diff'
-  | 'applied'
-  | 'undone'
-  | 'toggled'
-  | 'accepted'
+  | 'done'
   | 'error';
 
 export type MessageHandler = (clientId: string, message: WebSocketMessage) => void;

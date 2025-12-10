@@ -7,22 +7,15 @@ import { fileURLToPath } from 'url';
 import pc from 'picocolors';
 import type {
   PromptSubmitPayload,
-  DiffApprovalPayload,
   StatusUpdatePayload,
-  CodeChangeAction,
   WebSocketMessage,
 } from '@insy/shared';
 
 import { InsyWSServer } from './ws/server.js';
-import { SourceFileFinder } from './analyzer/finder.js';
-import { DiffGenerator } from './modifier/diff.js';
-import { FileWriter } from './filesystem/writer.js';
-import { ConfigLoader } from './config/loader.js';
 import { AdapterRegistry } from './adapters/registry.js';
 import { OpenCodeError } from './adapters/opencode.js';
 import type { CLIToolAdapter } from './adapters/interface.js';
 import { buildContextOnlyPrompt } from './prompts/builder.js';
-import { parseStructuredResponse, isStructuredResponse } from './prompts/parser.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -69,49 +62,18 @@ export interface ServerOptions {
 export class InsyServer {
   private app: Hono;
   private wsServer: InsyWSServer;
-  private configLoader: ConfigLoader;
   private defaultProjectRoot: string;
   private adapterRegistry: AdapterRegistry;
   private currentAdapter?: CLIToolAdapter;
-  private pendingDiffs = new Map<string, any>();
-
-  // Per-project service cache
-  private projectServices = new Map<
-    string,
-    {
-      sourceFinder: SourceFileFinder;
-      diffGenerator: DiffGenerator;
-      fileWriter: FileWriter;
-    }
-  >();
 
   constructor(private options: ServerOptions = {}) {
     this.app = new Hono();
     this.defaultProjectRoot = options.projectRoot || process.cwd();
-    this.configLoader = new ConfigLoader(this.defaultProjectRoot);
     this.wsServer = new InsyWSServer();
     this.adapterRegistry = new AdapterRegistry();
 
     this.setupRoutes();
     this.setupWebSocketHandlers();
-  }
-
-  // Get or create services for a specific project path
-  private getProjectServices(projectPath?: string) {
-    const root = projectPath || this.defaultProjectRoot;
-
-    let services = this.projectServices.get(root);
-    if (!services) {
-      console.log(`[Server] Creating services for project: ${root}`);
-      services = {
-        sourceFinder: new SourceFileFinder(root),
-        diffGenerator: new DiffGenerator(root),
-        fileWriter: new FileWriter(root),
-      };
-      this.projectServices.set(root, services);
-    }
-
-    return services;
   }
 
   private setupRoutes(): void {
@@ -135,21 +97,20 @@ export class InsyServer {
     });
 
     // Get project config
-    this.app.get('/config', async (c) => {
-      try {
-        const config = await this.configLoader.load();
-        const projectRoot = this.options.projectRoot || process.cwd();
-        return c.json({
-          ...config,
-          project: {
-            ...config.project,
-            path: config.project?.path || projectRoot,
-          },
-        });
-      } catch (error) {
-        console.error('Failed to load config:', error);
-        return c.json({ error: 'Failed to load config' }, 500);
-      }
+    this.app.get('/config', (c) => {
+      const projectRoot = this.options.projectRoot || process.cwd();
+      return c.json({
+        version: '1.0',
+        tool: 'opencode',
+        project: {
+          path: projectRoot,
+          name: path.basename(projectRoot),
+        },
+        server: {
+          port: this.options.port || 7777,
+          host: this.options.host || 'localhost',
+        },
+      });
     });
 
     // Serve client script with injected config
@@ -169,19 +130,18 @@ export class InsyServer {
 
         const content = await readFile(clientPath, 'utf-8');
 
-        // Load config and inject it into the client script
-        const config = await this.configLoader.load();
-        const projectRoot = config.project?.path || this.options.projectRoot || process.cwd();
-        const host = config.server?.host || this.options.host || 'localhost';
-        const port = config.server?.port || this.options.port || 7777;
+        // Inject config into the client script
+        const projectRoot = this.options.projectRoot || process.cwd();
+        const host = this.options.host || 'localhost';
+        const port = this.options.port || 7777;
 
         const injectedConfig = `
 ;(function() {
-  window.__PIXELCODE_CONFIG__ = {
+  window.__INSY_CONFIG__ = {
     projectPath: ${JSON.stringify(projectRoot)},
     host: ${JSON.stringify(host)},
     port: ${port},
-    projectName: ${JSON.stringify(config.project?.name || path.basename(projectRoot))}
+    projectName: ${JSON.stringify(path.basename(projectRoot))}
   };
 })();
 `;
@@ -204,15 +164,6 @@ export class InsyServer {
       switch (message.type) {
         case 'prompt/submit':
           this.handlePromptMessage(clientId, message.payload as PromptSubmitPayload);
-          break;
-        case 'diff/approve':
-          this.handleDiffApproval(clientId, message.payload as DiffApprovalPayload);
-          break;
-        case 'diff/undo':
-          this.handleDiffUndo(clientId, message.payload as { diffId: string });
-          break;
-        case 'diff/toggle':
-          this.handleDiffToggle(clientId, message.payload as { diffId: string });
           break;
         default:
           console.warn(`[Server] Unknown message type: ${message.type}`);
@@ -264,7 +215,6 @@ export class InsyServer {
 
     // Get project path from payload, fallback to default
     const projectPath = payloadProjectPath || this.defaultProjectRoot;
-    const { diffGenerator } = this.getProjectServices(projectPath);
 
     try {
       // Stage 1: Prepare context for AI
@@ -315,123 +265,21 @@ export class InsyServer {
         return;
       }
 
-      this.sendStatus(
-        clientId,
-        payload.instanceId,
-        'ai_processing',
-        `Asking ${this.currentAdapter.name} to find and edit files...`,
-        50
-      );
-
-      const config = this.configLoader.get();
-      // Use sessionId from payload (unique per chat) or fallback to config
-      const sessionId = payload.sessionId || config.opencode?.session || 'insy-default';
+      // Use sessionId from payload (unique per chat) or fallback to default
+      const sessionId = payload.sessionId || 'insy-default';
       console.log(`[Server] Using session: ${sessionId}`);
       if (payload.attachments?.length) {
         console.log(`[Server] Including ${payload.attachments.length} image attachment(s)`);
       }
 
-      const cliResponse = await this.currentAdapter.run(prompt, {
+      await this.currentAdapter.run(prompt, {
         session: sessionId,
-        model: config.opencode?.model,
-        continueSession: config.opencode?.continueSession,
+        continueSession: true,
         cwd: projectPath,
         attachments: payload.attachments,
-      });
+      })
 
-      // Log full AI response
-      console.log('[Server] ===== FULL AI RESPONSE =====');
-      console.log(cliResponse);
-      console.log('[Server] ===== END AI RESPONSE =====');
-
-      // Stage 4: Parse response
-      this.sendStatus(
-        clientId,
-        payload.instanceId,
-        'generating_diff',
-        'Parsing AI response...',
-        70
-      );
-
-      // Check if response is in structured XML format
-      if (isStructuredResponse(cliResponse)) {
-        // New structured format - can handle multiple files
-        const structured = parseStructuredResponse(cliResponse);
-
-        // Stage 5: Generate diffs for all changes
-        this.sendStatus(clientId, payload.instanceId, 'generating_diff', 'Generating diffs...', 85);
-        const multiDiff = await diffGenerator.generateMultiple(
-          structured.changes,
-          structured.summary
-        );
-
-        // Store all diffs for approval (include projectPath for later use)
-        const diffPayloads: Array<{
-          diffId: string;
-          file: string;
-          action: CodeChangeAction;
-          diff: string;
-          preview: { before: string; after: string };
-        }> = [];
-
-        // Get fileWriter for auto-applying
-        const { fileWriter } = this.getProjectServices(projectPath);
-
-        // Auto-apply all diffs immediately
-        this.sendStatus(clientId, payload.instanceId, 'generating_diff', 'Applying changes...', 90);
-
-        for (const diff of multiDiff.results) {
-          this.pendingDiffs.set(diff.id, { ...diff, projectPath });
-
-          // Auto-apply the diff (creates backup automatically)
-          const applyResult = await fileWriter.applyDiff(diff);
-          if (!applyResult.success) {
-            console.error(
-              `[Server] Failed to auto-apply diff for ${diff.file}: ${applyResult.error}`
-            );
-          }
-
-          // Find the corresponding action from changes
-          const change = structured.changes.find((c) => c.filePath === diff.file);
-
-          diffPayloads.push({
-            diffId: diff.id,
-            file: diff.file,
-            action: change?.action || 'modify',
-            diff: diff.unifiedDiff,
-            preview: {
-              before: diff.originalCode,
-              after: diff.modifiedCode,
-            },
-          });
-        }
-
-        // Send multi-diff to client via WebSocket
-        console.log(
-          `[Server] Sending diff event with ${diffPayloads.length} diff(s) (auto-applied)`
-        );
-        for (const dp of diffPayloads) {
-          console.log(
-            `[Server]   - ${dp.file} (${dp.action}): before=${dp.preview.before.length} bytes, after=${dp.preview.after.length} bytes`
-          );
-        }
-
-        this.wsServer.send(clientId, 'diff', {
-          instanceId: payload.instanceId,
-          summary: structured.summary,
-          diffs: diffPayloads,
-          autoApplied: true,
-        });
-      } else {
-        // Legacy format - AI didn't return structured XML
-        console.warn('[Server] AI response not in structured format, raw response received');
-        this.wsServer.send(clientId, 'error', {
-          code: 'PARSE_ERROR',
-          message:
-            'AI response was not in the expected XML format. Expected <file_changes> with file content for diff generation.',
-        });
-        this.sendStatus(clientId, payload.instanceId, 'error', 'Unexpected response format', 0);
-      }
+      this.sendStatus(clientId, payload.instanceId, 'success', 'Done', 100);
     } catch (error) {
       console.error('[Server] Error handling prompt:', error);
 
@@ -482,165 +330,6 @@ export class InsyServer {
     }
   }
 
-  private async handleDiffApproval(clientId: string, payload: DiffApprovalPayload): Promise<void> {
-    const storedDiff = this.pendingDiffs.get(payload.diffId);
-
-    if (!storedDiff) {
-      this.wsServer.send(clientId, 'error', {
-        code: 'DIFF_NOT_FOUND',
-        message: 'Diff not found',
-      });
-      return;
-    }
-
-    // Extract projectPath and diff data
-    const { projectPath, ...diff } = storedDiff;
-
-    // Get fileWriter for the correct project
-    const { fileWriter } = this.getProjectServices(projectPath);
-
-    if (payload.action === 'reject') {
-      // Permanent reject - restore from backup, delete backup, remove from pending
-      await fileWriter.undo(payload.diffId);
-      await fileWriter.deleteBackup(payload.diffId);
-      this.pendingDiffs.delete(payload.diffId);
-      console.log(`[Server] Rejected diff ${payload.diffId} - restored and cleaned up`);
-      return;
-    }
-
-    if (payload.action === 'accept') {
-      // Permanent accept - keep changes, delete backup only, remove from pending
-      await fileWriter.deleteBackup(payload.diffId);
-      this.pendingDiffs.delete(payload.diffId);
-
-      this.wsServer.send(clientId, 'accepted', {
-        diffId: payload.diffId,
-        file: diff.file,
-        success: true,
-      });
-
-      console.log(`[Server] Accepted diff ${payload.diffId} - backup deleted, changes kept`);
-      return;
-    }
-
-    // Legacy: Apply changes (action === 'apply') - for backward compatibility
-    try {
-      const result = await fileWriter.applyDiff(diff);
-
-      if (result.success) {
-        this.wsServer.send(clientId, 'applied', {
-          diffId: payload.diffId,
-          file: diff.file,
-          success: true,
-          backupPath: result.backupPath,
-        });
-
-        // DON'T delete from pendingDiffs - keep it for undo capability
-        console.log(`[Server] Applied diff ${payload.diffId}, keeping in memory for undo`);
-      } else {
-        this.wsServer.send(clientId, 'error', {
-          code: 'WRITE_ERROR',
-          message: result.error || 'Failed to write file',
-        });
-      }
-    } catch (error) {
-      console.error('[Server] Error applying diff:', error);
-      this.wsServer.send(clientId, 'error', {
-        code: 'WRITE_ERROR',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      });
-    }
-  }
-
-  private async handleDiffUndo(clientId: string, payload: { diffId: string }): Promise<void> {
-    const storedDiff = this.pendingDiffs.get(payload.diffId);
-
-    if (!storedDiff) {
-      this.wsServer.send(clientId, 'error', {
-        code: 'DIFF_NOT_FOUND',
-        message: 'Diff not found',
-      });
-      return;
-    }
-
-    // Extract projectPath
-    const { projectPath } = storedDiff;
-
-    // Get fileWriter for the correct project
-    const { fileWriter } = this.getProjectServices(projectPath);
-
-    // Undo changes (restore from backup)
-    try {
-      const success = await fileWriter.undo(payload.diffId);
-
-      if (success) {
-        this.wsServer.send(clientId, 'undone', {
-          diffId: payload.diffId,
-          success: true,
-        });
-
-        console.log(`[Server] Undid changes for diff ${payload.diffId}`);
-      } else {
-        this.wsServer.send(clientId, 'error', {
-          code: 'UNDO_ERROR',
-          message: 'Failed to undo changes',
-        });
-      }
-    } catch (error) {
-      console.error('[Server] Error undoing diff:', error);
-      this.wsServer.send(clientId, 'error', {
-        code: 'UNDO_ERROR',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      });
-    }
-  }
-
-  private async handleDiffToggle(
-    clientId: string,
-    payload: { diffId: string }
-  ): Promise<{ success: boolean; isApplied: boolean }> {
-    const storedDiff = this.pendingDiffs.get(payload.diffId);
-
-    if (!storedDiff) {
-      this.wsServer.send(clientId, 'error', {
-        code: 'DIFF_NOT_FOUND',
-        message: 'Diff not found',
-      });
-      return { success: false, isApplied: false };
-    }
-
-    // Extract projectPath
-    const { projectPath } = storedDiff;
-
-    // Get fileWriter for the correct project
-    const { fileWriter } = this.getProjectServices(projectPath);
-
-    // Toggle changes on/off
-    try {
-      const result = await fileWriter.toggle(payload.diffId);
-
-      if (result.success) {
-        this.wsServer.send(clientId, 'toggled', {
-          diffId: payload.diffId,
-          isApplied: result.isApplied,
-        });
-
-        console.log(
-          `[Server] Toggled diff ${payload.diffId} - now ${result.isApplied ? 'ON' : 'OFF'}`
-        );
-      }
-
-      return result;
-    } catch (error) {
-      console.error('[Server] Error toggling diff:', error);
-      this.wsServer.send(clientId, 'error', {
-        code: 'TOGGLE_ERROR',
-        message: error instanceof Error ? error.message : 'Unknown error',
-      });
-      return { success: false, isApplied: false };
-    }
-  }
-
   private sendStatus(
     clientId: string,
     instanceId: string,
@@ -667,10 +356,6 @@ export class InsyServer {
   }
 
   async start(): Promise<void> {
-    // Load config
-    await this.configLoader.load();
-    const config = this.configLoader.get();
-
     // Setup adapters - register all available CLI tools
     console.log(pc.dim('Checking for available CLI tools...'));
     this.adapterRegistry.registerDefaultAdapters();
@@ -682,20 +367,16 @@ export class InsyServer {
       console.error();
       console.error(pc.red('✗ No CLI tools found'));
       console.error();
-      console.error('Insy requires at least one AI CLI tool to be installed.');
+      console.error('Insy requires OpenCode to be installed.');
       console.error();
       console.error('Supported CLI tools (in order of priority):');
       console.error(pc.cyan('  1. OpenCode:        https://opencode.ai'));
-      console.error(pc.cyan('  2. Claude Code:     https://code.claude.com'));
-      console.error(pc.cyan('  3. Gemini CLI:      npm install -g @google/gemini-cli'));
-      console.error(pc.cyan('  4. GitHub Copilot:  npm install -g @github/copilot'));
       console.error();
       process.exit(1);
     }
 
-    // Use configured tool or first available (by priority)
-    const toolName = config.tool;
-    this.currentAdapter = toolName ? await this.adapterRegistry.getAdapter(toolName) : available[0];
+    // Use first available adapter (by priority)
+    this.currentAdapter = available[0];
 
     if (this.currentAdapter && this.currentAdapter.getVersion) {
       const version = await this.currentAdapter.getVersion();
@@ -704,8 +385,8 @@ export class InsyServer {
       console.log(pc.green(`✓ Found ${this.currentAdapter.name}`));
     }
 
-    const port = this.options.port || config.server?.port || 7777;
-    const host = this.options.host || config.server?.host || 'localhost';
+    const port = this.options.port || 7777;
+    const host = this.options.host || 'localhost';
 
     // Check if server is already running before attempting to start
     const isAlreadyRunning = await this.checkExistingServer(host, port);
@@ -731,15 +412,9 @@ export class InsyServer {
         console.log(`${pc.green('✓')} Server running at ${pc.cyan(`http://${host}:${port}`)}`);
         console.log(`${pc.green('✓')} WebSocket endpoint at ${pc.cyan(`ws://${host}:${port}/ws`)}`);
         console.log();
-        console.log(pc.dim('Add this script tag to your app:'));
-        console.log(pc.yellow(`  <script src="http://${host}:${port}/client.js"></script>`));
         console.log();
-        console.log(
-          pc.dim('Or use the keyboard shortcut: ⌘+Shift+E (Mac) or Ctrl+Shift+E (Windows/Linux)')
-        );
         console.log();
-        console.log(pc.dim(`CLI Tool: ${this.currentAdapter?.name}`));
-        console.log(pc.dim(`Default Project: ${this.defaultProjectRoot}`));
+        console.log(pc.dim(`Using: ${this.currentAdapter?.name}`));
         console.log();
       }
     );
@@ -752,11 +427,6 @@ export class InsyServer {
       if (err.code === 'EADDRINUSE') {
         console.error();
         console.error(pc.red(`✗ Port ${port} is already in use by another application.`));
-        console.error(
-          pc.dim(
-            `Run: lsof -i :${port} (macOS/Linux) or netstat -ano | findstr :${port} (Windows) to find what's using it.`
-          )
-        );
         console.error();
         process.exit(1);
         return;

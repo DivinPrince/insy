@@ -23,7 +23,6 @@ import {
   getSource,
   isSourceFile,
   normalizeFileName,
-  getSourcesFromStack,
   getOwnerStack,
   type FiberSource,
 } from 'bippy/source';
@@ -248,8 +247,8 @@ export async function getReactStack(element: Element): Promise<StackFrame[]> {
     const maybeFiber = getFiberFromHostInstance(element);
     if (!maybeFiber || !isFiber(maybeFiber)) return [];
 
-    const ownerStack = getOwnerStack(maybeFiber);
-    const sources = await getSourcesFromStack(ownerStack);
+    // In bippy 0.5.25+, getOwnerStack returns Promise<StackFrame[]> directly
+    const sources = await getOwnerStack(maybeFiber);
 
     if (sources && sources.length > 0) {
       const stack: StackFrame[] = [];
