@@ -1,6 +1,4 @@
 {
-  "name": "insy",
-  "version": "0.0.1",
   "private": true,
   "packageManager": "pnpm@9.15.0",
   "description": "AI-powered visual code editing for any frontend framework",
