@@ -20,6 +20,8 @@ export interface OpenCodeConfig {
   model?: string;
 }
 
+const DEFAULT_MODEL = 'github-copilot/claude-sonnet-4.5';
+
 type OpencodeClient = Awaited<ReturnType<typeof createOpencodeClient>>;
 type OpencodeInstance = Awaited<ReturnType<typeof createOpencode>>;
 
@@ -148,14 +150,10 @@ export class OpenCodeAdapter implements CLIToolAdapter {
         throw new Error('Failed to create session - no session ID returned');
       }
 
-      // Build model config if specified
-      const modelStr = options?.model || this.config.model;
-      let modelConfig: { providerID: string; modelID: string } | undefined;
-
-      if (modelStr && modelStr.includes('/')) {
-        const [providerID, modelID] = modelStr.split('/');
-        modelConfig = { providerID, modelID };
-      }
+      // Build model config - use provided model, config model, or default
+      const modelStr = options?.model || this.config.model || DEFAULT_MODEL;
+      const [providerID, modelID] = modelStr.split('/');
+      const modelConfig = { providerID, modelID };
 
       console.log('[OpenCode] Sending prompt...', modelConfig);
 
@@ -163,6 +161,7 @@ export class OpenCodeAdapter implements CLIToolAdapter {
       const response = await client.session.prompt({
         path: { id: session.id },
         body: {
+          model: modelConfig,
           parts: [{ type: 'text', text: prompt }],
         },
       });

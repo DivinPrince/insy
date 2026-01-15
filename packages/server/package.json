@@ -1,12 +1,12 @@
 {
   "name": "@insy/server",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "description": "Insy local server",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "bin": {
-    "insy-server": "./dist/index.js"
+    "insy-server": "./dist/cli.cjs"
   },
   "files": [
     "dist"

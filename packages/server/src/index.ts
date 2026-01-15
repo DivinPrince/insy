@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 import { InsyServer, startServer } from './server.js';
 
 // Export for programmatic use

@@ -1,5 +1,13 @@
 # @insy/next
 
+## 0.0.4
+
+### Patch Changes
+
+- set default model
+- Updated dependencies
+  - @insy/server@0.0.8
+
 ## 0.0.3
 
 ### Patch Changes
